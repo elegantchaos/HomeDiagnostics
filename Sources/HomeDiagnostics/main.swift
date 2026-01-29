@@ -40,6 +40,22 @@ private func info(_ message: String) {
 /// Whether verbose output is enabled
 nonisolated(unsafe) private var isVerbose = false
 
+/// ANSI color codes for terminal output
+enum TerminalColor {
+  /// Reset all formatting
+  static let reset = "\u{001B}[0m"
+  /// Bright/bold text
+  static let bold = "\u{001B}[1m"
+  /// Dim/faint text
+  static let dim = "\u{001B}[2m"
+  /// Red text (for errors/faults)
+  static let red = "\u{001B}[31m"
+  /// Yellow text (for warnings)
+  static let yellow = "\u{001B}[33m"
+  /// Gray text (for metadata)
+  static let gray = "\u{001B}[90m"
+}
+
 /// Command-line tool for diagnosing Apple Home and HomeKit issues
 @main
 struct HomeDiagnostics: AsyncParsableCommand {
@@ -157,7 +173,8 @@ struct HomeDiagnostics: AsyncParsableCommand {
       let formatter = OutputFormatter(
         analysis: analysis,
         showSummary: summary,
-        deduplicate: dedupe
+        deduplicate: dedupe,
+        errorsOnly: errorsOnly
       )
 
       let outputText = formatter.format()
@@ -626,6 +643,9 @@ struct OutputFormatter {
   /// Whether to deduplicate entries
   let deduplicate: Bool
 
+  /// Whether errors-only mode is active (skip PROBLEMATIC ENTRIES section)
+  let errorsOnly: Bool
+
   /// Formats the analysis as a string
   func format() -> String {
     var output = ""
@@ -635,7 +655,9 @@ struct OutputFormatter {
       output += "\n\n"
     }
 
-    if analysis.problematicCount > 0 {
+    // Skip PROBLEMATIC ENTRIES section when using --errors-only
+    // (it would be identical to ALL ENTRIES)
+    if analysis.problematicCount > 0 && !errorsOnly {
       output += formatProblematicEntries()
       output += "\n\n"
     }
@@ -686,36 +708,65 @@ struct OutputFormatter {
     }.sorted { $0.count > $1.count }
   }
 
+  /// Formats a compact timestamp without year and seconds
+  private func formatCompactDate(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MM/dd HH:mm"
+    return formatter.string(from: date)
+  }
+
+  /// Returns the color for a given log level
+  private func colorForLevel(_ level: LogLevel) -> String {
+    switch level {
+    case .error, .fault:
+      return TerminalColor.red
+    case .warning:
+      return TerminalColor.yellow
+    case .info, .debug:
+      return ""
+    }
+  }
+
   /// Formats the problematic entries section
   private func formatProblematicEntries() -> String {
     var output = "PROBLEMATIC ENTRIES\n"
     output += "===================\n\n"
-
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
 
     if deduplicate {
       let grouped = groupEntries(analysis.problematicEntries)
       output += "Showing \(grouped.count) unique problematic entry types (out of \(analysis.problematicCount) total)\n\n"
 
       for group in grouped {
+        let color = colorForLevel(group.example.level)
+        
+        // Metadata in gray/dim
+        output += "\(TerminalColor.gray)"
         output += "[\(group.count)x] "
-        output += "[\(formatter.string(from: group.firstSeen))"
+        output += "[\(formatCompactDate(group.firstSeen))"
         if group.count > 1 {
-          output += " - \(formatter.string(from: group.lastSeen))"
+          output += " - \(formatCompactDate(group.lastSeen))"
         }
         output += "] "
         output += "[\(group.example.level.rawValue)] "
-        output += "[\(group.example.subsystem)]\n"
-        output += "  \(group.example.message)\n\n"
+        output += "[\(group.example.subsystem)]"
+        output += "\(TerminalColor.reset)\n"
+        
+        // Message in bold color
+        output += "\(color)\(TerminalColor.bold)\(group.example.message)\(TerminalColor.reset)\n\n"
       }
     } else {
       for entry in analysis.problematicEntries {
-        output += "[\(formatter.string(from: entry.timestamp))] "
+        let color = colorForLevel(entry.level)
+        
+        // Metadata in gray/dim
+        output += "\(TerminalColor.gray)"
+        output += "[\(formatCompactDate(entry.timestamp))] "
         output += "[\(entry.level.rawValue)] "
-        output += "[\(entry.subsystem)]\n"
-        output += "  \(entry.message)\n\n"
+        output += "[\(entry.subsystem)]"
+        output += "\(TerminalColor.reset)\n"
+        
+        // Message in bold color
+        output += "\(color)\(TerminalColor.bold)\(entry.message)\(TerminalColor.reset)\n\n"
       }
     }
 
@@ -727,31 +778,49 @@ struct OutputFormatter {
     var output = "ALL ENTRIES\n"
     output += "===========\n\n"
 
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-
     if deduplicate {
       let grouped = groupEntries(analysis.allEntries)
       output += "Showing \(grouped.count) unique entry types (out of \(analysis.totalEntries) total)\n\n"
 
       for group in grouped {
+        let color = colorForLevel(group.example.level)
+        
+        // Metadata in gray/dim
+        output += "\(TerminalColor.gray)"
         output += "[\(group.count)x] "
-        output += "[\(formatter.string(from: group.firstSeen))"
+        output += "[\(formatCompactDate(group.firstSeen))"
         if group.count > 1 {
-          output += " - \(formatter.string(from: group.lastSeen))"
+          output += " - \(formatCompactDate(group.lastSeen))"
         }
         output += "] "
         output += "[\(group.example.level.rawValue)] "
-        output += "[\(group.example.subsystem)]\n"
-        output += "  \(group.example.message)\n\n"
+        output += "[\(group.example.subsystem)]"
+        output += "\(TerminalColor.reset)\n"
+        
+        // Message with color if error/warning
+        if !color.isEmpty {
+          output += "\(color)\(TerminalColor.bold)\(group.example.message)\(TerminalColor.reset)\n\n"
+        } else {
+          output += "\(group.example.message)\n\n"
+        }
       }
     } else {
       for entry in analysis.allEntries {
-        output += "[\(formatter.string(from: entry.timestamp))] "
+        let color = colorForLevel(entry.level)
+        
+        // Metadata in gray/dim
+        output += "\(TerminalColor.gray)"
+        output += "[\(formatCompactDate(entry.timestamp))] "
         output += "[\(entry.level.rawValue)] "
-        output += "[\(entry.subsystem)]\n"
-        output += "  \(entry.message)\n\n"
+        output += "[\(entry.subsystem)]"
+        output += "\(TerminalColor.reset)\n"
+        
+        // Message with color if error/warning
+        if !color.isEmpty {
+          output += "\(color)\(TerminalColor.bold)\(entry.message)\(TerminalColor.reset)\n\n"
+        } else {
+          output += "\(entry.message)\n\n"
+        }
       }
     }
 
