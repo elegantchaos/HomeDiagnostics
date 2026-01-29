@@ -8,8 +8,36 @@
       "program": "${workspaceFolder}/.build/debug/home-diagnostics",
       "args": [
         "--days",
-        "14",
+        "7",
         "--hue-only",
+        "--verbose",
+        "--detailed"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "swift-build"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "name": "Debug HomeDiagnostics - Quick Summary",
+      "program": "${workspaceFolder}/.build/debug/home-diagnostics",
+      "args": [
+        "--days",
+        "3",
+        "--summary"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "swift-build"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "name": "Debug HomeDiagnostics - Detailed Analysis",
+      "program": "${workspaceFolder}/.build/debug/home-diagnostics",
+      "args": [
+        "--days",
+        "7",
+        "--detailed",
         "--verbose"
       ],
       "cwd": "${workspaceFolder}",
@@ -18,13 +46,32 @@
     {
       "type": "swift",
       "request": "launch",
-      "name": "Debug HomeDiagnostics - All Devices",
+      "name": "Debug HomeDiagnostics - Hue Deduplicated",
       "program": "${workspaceFolder}/.build/debug/home-diagnostics",
       "args": [
-        "--all"
+        "--days",
+        "7",
+        "--hue-only",
+        "--dedupe",
+        "--verbose"
       ],
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "swift-build"
     },
+    {
+      "type": "swift",
+      "request": "launch",
+      "name": "Debug HomeDiagnostics - Raw Hue Logs",
+      "program": "${workspaceFolder}/.build/debug/home-diagnostics",
+      "args": [
+        "--days",
+        "3",
+        "--hue-only",
+        "--raw",
+        "--verbose"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "swift-build"
+    }
   ]
 }

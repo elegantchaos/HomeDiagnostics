@@ -58,31 +58,61 @@ struct HomeDiagnostics: AsyncParsableCommand {
   @Flag(name: .long, help: "Show summary statistics")
   var summary: Bool = false
 
-  @Flag(name: .shortAndLong, help: "Enable verbose logging and include debug-level logs")
+  @Flag(name: .shortAndLong, help: "Enable verbose output")
   var verbose: Bool = false
 
+  @Flag(name: .long, help: "Include debug-level logs (slower, more comprehensive)")
+  var detailed: Bool = false
+
+  @Flag(name: .long, help: "De-duplicate log entries and show one example of each unique type")
+  var dedupe: Bool = false
+
+  @Flag(name: .long, help: "Output raw log data without parsing or analysis")
+  var raw: Bool = false
+
   mutating func run() async throws {
-    // Configure verbose output and debug log inclusion
+    // Configure verbose output
     isVerbose = verbose
+
+    // Validate flag combinations
+    if raw && (summary || dedupe) {
+      printErr("[ERROR] --raw cannot be combined with --summary or --dedupe")
+      throw ExitCode.validationFailure
+    }
 
     do {
       info("Starting HomeDiagnostics - Apple Home Log Analyzer")
-      printErr("HomeDiagnostics - Apple Home Log Analyzer")
-      printErr("==========================================\n")
+      
+      if !raw {
+        printErr("HomeDiagnostics - Apple Home Log Analyzer")
+        printErr("==========================================\n")
+      }
 
       let collector = LogCollector(
         daysBack: days,
-        includeDebug: verbose,
+        includeDebug: detailed,
         hueOnly: hueOnly
       )
 
-      printErr("Collecting logs from the last \(days) day(s)...")
-      if verbose {
-        printErr("(Including debug-level logs - this may take a while)")
+      if !raw {
+        printErr("Collecting logs from the last \(days) day(s)...")
+        if detailed {
+          printErr("(Including debug-level logs - this may take a while)")
+        }
+        printErr("")
       }
-      printErr("")
 
       debug("Beginning log collection")
+
+      // Raw mode: output unprocessed logs directly
+      if raw {
+        let rawOutput = try await collector.collectRawLogs()
+        print(rawOutput)
+        info("HomeDiagnostics raw output completed successfully")
+        return
+      }
+
+      // Normal mode: parse and analyze logs
       let logs = try await collector.collectLogs()
       info("Collected \(logs.count) log entries")
 
@@ -93,7 +123,8 @@ struct HomeDiagnostics: AsyncParsableCommand {
       debug("Formatting output")
       let formatter = OutputFormatter(
         analysis: analysis,
-        showSummary: summary
+        showSummary: summary,
+        deduplicate: dedupe
       )
 
       let outputText = formatter.format()
@@ -147,6 +178,90 @@ struct LogCollector {
     allEntries.sort { $0.timestamp < $1.timestamp }
 
     return allEntries
+  }
+
+  /// Collects raw log output without parsing
+  func collectRawLogs() async throws -> String {
+    var allOutput: [String] = []
+
+    // Collect from different subsystems
+    let subsystems = [
+      "com.apple.Home",
+      "com.apple.HomeKit",
+      "com.apple.homed",
+    ]
+
+    for subsystem in subsystems {
+      do {
+        debug("Collecting raw logs for subsystem: \(subsystem)")
+        let output = try await collectRawLogsForSubsystem(subsystem)
+        debug("Collected \(output.count) characters from \(subsystem)")
+        
+        if !output.isEmpty {
+          allOutput.append(output)
+        }
+      } catch {
+        printErr("[ERROR] Failed to collect logs for subsystem \(subsystem): \(error)")
+        // Continue with other subsystems even if one fails
+      }
+    }
+
+    return allOutput.joined(separator: "\n")
+  }
+
+  /// Collects raw logs for a specific subsystem without parsing
+  private func collectRawLogsForSubsystem(_ subsystem: String) async throws -> String {
+    let timeInterval = "\(daysBack)d"
+    let levelPredicate = includeDebug ? "--info --debug" : "--info"
+
+    // Build the log command arguments
+    let arguments =
+      [
+        "show",
+        "--style", "syslog",
+        "--last", timeInterval,
+      ] + levelPredicate.components(separatedBy: " ") + [
+        "--predicate", "subsystem == \"\(subsystem)\"",
+      ]
+
+    debug("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
+
+    do {
+      // Execute using Subprocess
+      let result = try await Subprocess.run(
+        .path(FilePath("/usr/bin/log")),
+        arguments: Arguments(arguments),
+        output: .string(limit: 100 * 1024 * 1024),  // 100MB limit
+        error: .string(limit: 1024 * 1024)  // 1MB limit for errors
+      )
+
+      // Check exit status
+      if case .exited(let code) = result.terminationStatus, code != 0 {
+        debug("log command returned non-zero exit code: \(code) for \(subsystem)")
+        if let errorOutput = result.standardError {
+          debug("Error output: \(errorOutput)")
+        }
+      }
+
+      // Read output and filter for Hue if requested
+      var output = result.standardOutput ?? ""
+      
+      if hueOnly {
+        let lines = output.components(separatedBy: .newlines)
+        let filteredLines = lines.filter { line in
+          let lowercased = line.lowercased()
+          return lowercased.contains("hue")
+            || lowercased.contains("philips")
+            || lowercased.contains("bridge")
+        }
+        output = filteredLines.joined(separator: "\n")
+      }
+
+      return output
+    } catch {
+      printErr("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
+      throw error
+    }
   }
 
   /// Collects logs for a specific subsystem
@@ -299,6 +414,51 @@ struct LogEntry {
       || message.localizedStandardContains("unreachable")
       || message.localizedStandardContains("not responding")
   }
+
+  /// Normalized message with UUIDs removed for deduplication
+  var normalizedMessage: String {
+    var normalized = message
+
+    // Remove UUIDs (8-4-4-4-12 format)
+    let uuidPattern = #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#
+    if let regex = try? NSRegularExpression(pattern: uuidPattern) {
+      let range = NSRange(normalized.startIndex..., in: normalized)
+      normalized = regex.stringByReplacingMatches(
+        in: normalized,
+        range: range,
+        withTemplate: "<UUID>"
+      )
+    }
+
+    // Remove hex addresses (0x followed by hex digits)
+    let hexPattern = #"0x[0-9A-Fa-f]+"#
+    if let regex = try? NSRegularExpression(pattern: hexPattern) {
+      let range = NSRange(normalized.startIndex..., in: normalized)
+      normalized = regex.stringByReplacingMatches(
+        in: normalized,
+        range: range,
+        withTemplate: "<ADDR>"
+      )
+    }
+
+    // Remove timestamps (common formats)
+    let timestampPattern = #"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+"#
+    if let regex = try? NSRegularExpression(pattern: timestampPattern) {
+      let range = NSRange(normalized.startIndex..., in: normalized)
+      normalized = regex.stringByReplacingMatches(
+        in: normalized,
+        range: range,
+        withTemplate: "<TIMESTAMP>"
+      )
+    }
+
+    return normalized
+  }
+
+  /// Key for grouping duplicate entries
+  var deduplicationKey: String {
+    "\(subsystem)|\(level.rawValue)|\(normalizedMessage)"
+  }
 }
 
 /// Log level severity
@@ -388,6 +548,21 @@ struct LogAnalysis {
   let allEntries: [LogEntry]
 }
 
+/// Represents a group of duplicate log entries
+struct GroupedLogEntry {
+  /// Representative entry (first occurrence)
+  let example: LogEntry
+
+  /// Number of occurrences
+  let count: Int
+
+  /// First occurrence timestamp
+  let firstSeen: Date
+
+  /// Last occurrence timestamp
+  let lastSeen: Date
+}
+
 /// Formats analysis results for output
 struct OutputFormatter {
   /// The analysis results to format
@@ -395,6 +570,9 @@ struct OutputFormatter {
 
   /// Whether to show a summary
   let showSummary: Bool
+
+  /// Whether to deduplicate entries
+  let deduplicate: Bool
 
   /// Formats the analysis as a string
   func format() -> String {
@@ -426,14 +604,34 @@ struct OutputFormatter {
     summary += "Faults: \(analysis.faultCount)\n"
     summary += "Warnings: \(analysis.warningCount)\n"
     summary += "Hue-related: \(analysis.hueRelatedCount)\n"
-    summary += "Potentially problematic: \(analysis.problematicCount)\n\n"
+    summary += "Potentially problematic: \(analysis.problematicCount)\n"
 
-    summary += "Entries by subsystem:\n"
+    if deduplicate {
+      let uniqueCount = groupEntries(analysis.allEntries).count
+      summary += "Unique entry types: \(uniqueCount)\n"
+    }
+
+    summary += "\nEntries by subsystem:\n"
     for (subsystem, count) in analysis.subsystemCounts.sorted(by: { $0.value > $1.value }) {
       summary += "  \(subsystem): \(count)\n"
     }
 
     return summary
+  }
+
+  /// Groups entries by their deduplication key
+  private func groupEntries(_ entries: [LogEntry]) -> [GroupedLogEntry] {
+    let grouped = Dictionary(grouping: entries) { $0.deduplicationKey }
+
+    return grouped.map { _, entries in
+      let sorted = entries.sorted { $0.timestamp < $1.timestamp }
+      return GroupedLogEntry(
+        example: sorted[0],
+        count: entries.count,
+        firstSeen: sorted[0].timestamp,
+        lastSeen: sorted[sorted.count - 1].timestamp
+      )
+    }.sorted { $0.count > $1.count }
   }
 
   /// Formats the problematic entries section
@@ -445,11 +643,28 @@ struct OutputFormatter {
     formatter.dateStyle = .short
     formatter.timeStyle = .medium
 
-    for entry in analysis.problematicEntries {
-      output += "[\(formatter.string(from: entry.timestamp))] "
-      output += "[\(entry.level.rawValue)] "
-      output += "[\(entry.subsystem)]\n"
-      output += "  \(entry.message)\n\n"
+    if deduplicate {
+      let grouped = groupEntries(analysis.problematicEntries)
+      output += "Showing \(grouped.count) unique problematic entry types (out of \(analysis.problematicCount) total)\n\n"
+
+      for group in grouped {
+        output += "[\(group.count)x] "
+        output += "[\(formatter.string(from: group.firstSeen))"
+        if group.count > 1 {
+          output += " - \(formatter.string(from: group.lastSeen))"
+        }
+        output += "] "
+        output += "[\(group.example.level.rawValue)] "
+        output += "[\(group.example.subsystem)]\n"
+        output += "  \(group.example.message)\n\n"
+      }
+    } else {
+      for entry in analysis.problematicEntries {
+        output += "[\(formatter.string(from: entry.timestamp))] "
+        output += "[\(entry.level.rawValue)] "
+        output += "[\(entry.subsystem)]\n"
+        output += "  \(entry.message)\n\n"
+      }
     }
 
     return output
@@ -464,11 +679,28 @@ struct OutputFormatter {
     formatter.dateStyle = .short
     formatter.timeStyle = .medium
 
-    for entry in analysis.allEntries {
-      output += "[\(formatter.string(from: entry.timestamp))] "
-      output += "[\(entry.level.rawValue)] "
-      output += "[\(entry.subsystem)]\n"
-      output += "  \(entry.message)\n\n"
+    if deduplicate {
+      let grouped = groupEntries(analysis.allEntries)
+      output += "Showing \(grouped.count) unique entry types (out of \(analysis.totalEntries) total)\n\n"
+
+      for group in grouped {
+        output += "[\(group.count)x] "
+        output += "[\(formatter.string(from: group.firstSeen))"
+        if group.count > 1 {
+          output += " - \(formatter.string(from: group.lastSeen))"
+        }
+        output += "] "
+        output += "[\(group.example.level.rawValue)] "
+        output += "[\(group.example.subsystem)]\n"
+        output += "  \(group.example.message)\n\n"
+      }
+    } else {
+      for entry in analysis.allEntries {
+        output += "[\(formatter.string(from: entry.timestamp))] "
+        output += "[\(entry.level.rawValue)] "
+        output += "[\(entry.subsystem)]\n"
+        output += "  \(entry.message)\n\n"
+      }
     }
 
     return output
