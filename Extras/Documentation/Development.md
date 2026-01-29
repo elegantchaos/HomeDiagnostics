@@ -407,34 +407,21 @@ func groupBySimilarity(_ entries: [LogEntry], threshold: Double) -> [[LogEntry]]
 | Phase 1 only | O(n) | ~2 seconds | 98.1% (3765 → 71) |
 | Phase 1 + Phase 2 | O(n²) | ~2 minutes (timeout) | Unknown (not measured) |
 
-## Contributing
-
-### Guidelines
-
-1. **Follow Swift 6 conventions**: See `AGENTS.md` for detailed coding standards
-2. **Write tests**: All new functionality must have test coverage
-3. **Document code**: Use `///` doc comments for all public APIs
-4. **Format code**: Run `swift format` before committing
-5. **Update docs**: Keep README and Examples.md in sync with changes
-
-### Engineering Principles
-
-See `Extras/Documentation/Principles Glossary.md` for:
-- Code organization patterns
-- Error handling strategies
-- Testing philosophy
-- Performance considerations
-
 ### Pull Request Checklist
 
-- [ ] Code builds without warnings
+Before submitting a pull request:
+
+- [ ] Code builds without warnings (`swift build`)
 - [ ] All tests pass (`swift test`)
 - [ ] New tests added for new functionality
-- [ ] Code formatted (`swift format`)
-- [ ] Documentation updated (README, Examples, inline comments)
-- [ ] CHANGELOG updated (if applicable)
+- [ ] Code formatted (`swift format --in-place --recursive Sources Tests`)
+- [ ] Documentation updated (README, usage guides, inline comments)
+- [ ] No secrets or credentials in code
+- [ ] Commit messages follow format guidelines
 
 ### Commit Message Format
+
+Use conventional commit format:
 
 ```
 <type>: <short description>
@@ -444,9 +431,16 @@ See `Extras/Documentation/Principles Glossary.md` for:
 <footer>
 ```
 
-**Types**: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `chore`
+**Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `test`: Adding or updating tests
+- `refactor`: Code refactoring without behavior change
+- `perf`: Performance improvements
+- `chore`: Build, dependencies, or tooling changes
 
-**Example**:
+**Example:**
 
 ```
 feat: add MAC address normalization to deduplication
@@ -456,6 +450,26 @@ placeholder, improving deduplication of device-specific messages.
 
 Addresses #123
 ```
+
+### Code Review Guidelines
+
+When reviewing code:
+
+1. **Correctness**: Does it work as intended?
+2. **Tests**: Are there adequate tests?
+3. **Clarity**: Is the code easy to understand?
+4. **Performance**: Are there obvious performance issues?
+5. **Documentation**: Are changes documented?
+6. **Style**: Does it follow project conventions?
+
+### Engineering Principles
+
+See [Principles Glossary](Principles Glossary.md) for:
+- Code organization patterns
+- Error handling strategies
+- Testing philosophy
+- Performance considerations
+- Decision-making heuristics
 
 ## Dependencies
 
@@ -594,6 +608,49 @@ open Package.swift  # Opens in Xcode
 - If slow, check regex patterns aren't backtracking
 - Profile with Instruments if needed
 
-## License
+## Contributing
 
-This tool is provided as-is for personal diagnostic use.
+### Getting Started
+
+Contributions are welcome! Before contributing:
+
+1. Read this development guide
+2. Review the [Engineering Principles](Principles Glossary.md)
+3. Follow the Swift coding standards in `AGENTS.md`
+4. Ensure all tests pass
+
+### Contribution Workflow
+
+1. **Fork and clone** the repository
+2. **Create a feature branch**: `git checkout -b feature/my-feature`
+3. **Make changes** following the guidelines below
+4. **Add tests** for new functionality
+5. **Run tests**: `swift test`
+6. **Format code**: `swift format --in-place --recursive Sources Tests`
+7. **Commit changes**: Follow commit message format below
+8. **Push to your fork**: `git push origin feature/my-feature`
+9. **Open a pull request** with clear description
+
+### Code Guidelines
+
+1. **Follow Swift 6 conventions**: See `AGENTS.md` for detailed coding standards
+2. **Write tests**: All new functionality must have test coverage
+3. **Document code**: Use `///` doc comments for all public APIs and implementations
+4. **Format code**: Run `swift format` before committing
+5. **Update docs**: Keep README and guide docs in sync with changes
+
+### Testing Requirements
+
+- All new code must have unit tests
+- Use Swift Testing framework (not XCTest)
+- Maintain or improve test coverage
+- Test edge cases and error conditions
+- Add integration tests for user-facing features
+
+### Documentation Requirements
+
+- Update relevant documentation files
+- Add inline code comments for complex logic
+- Update README.md if user-facing behavior changes
+- Add examples to Usage.md for new features
+- Update Output.md if output format changes

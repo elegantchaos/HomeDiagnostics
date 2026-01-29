@@ -1,96 +1,53 @@
-# Usage Examples and Output Reference
+# Usage Guide
 
-This document provides detailed examples of HomeDiagnostics usage patterns and sample output.
+This document covers common workflows, filter patterns, troubleshooting steps, and practical examples.
 
 ## Table of Contents
 
-- [Common Use Cases](#common-use-cases)
-- [Output Format Reference](#output-format-reference)
-- [Filter Examples](#filter-examples)
-- [Troubleshooting Workflows](#troubleshooting-workflows)
+- [Common Workflows](#common-workflows)
+- [Filter Patterns](#filter-patterns)
+- [Troubleshooting](#troubleshooting)
+- [Common Error Messages](#common-error-messages)
 
-## Common Use Cases
+## Common Workflows
 
-### Diagnosing Non-Responsive Devices
-
-#### Philips Hue Devices
+### Diagnose Non-Responsive Device
 
 ```bash
-# Check for Hue issues in the last week
-home-diagnostics --days 7 --filter "hue|philips|bridge" --errors-only --dedupe
+# 1. Check recent activity
+home-diagnostics --hours 6 --filter "device-name" --errors-only
 
-# Check if Hue issues are ongoing
-home-diagnostics --hours 2 --filter "hue" --errors-only
+# 2. Look for patterns over last week
+home-diagnostics --days 7 --filter "device-name" --errors-only --dedupe
+
+# 3. Check if it's a manufacturer-wide issue
+home-diagnostics --days 7 --filter "hue|philips" --errors-only --dedupe
 ```
 
-#### Nanoleaf Devices
+### Find Specific Problems
 
 ```bash
-home-diagnostics --days 7 --filter "nanoleaf" --errors-only --dedupe
-```
-
-#### Device by Name
-
-```bash
-# Search by room or accessory name
-home-diagnostics --days 7 --filter "Living Room Lamp" --errors-only
-
-# Search multiple names
-home-diagnostics --filter "Kitchen|Bedroom|Bathroom"
-```
-
-### Finding Specific Problems
-
-#### Timeout Issues
-
-```bash
+# Timeout issues
 home-diagnostics --days 7 --filter "timeout" --errors-only --dedupe
+
+# Connection failures
+home-diagnostics --days 7 --filter "unreachable|connect.*fail" --errors-only
+
+# Authentication problems
+home-diagnostics --days 7 --filter "pairing|auth" --errors-only
 ```
 
-#### Connection Failures
+### Monitor Home Stability
 
 ```bash
-home-diagnostics --days 7 --filter "connect.*fail|unreachable" --errors-only
-```
-
-#### Authentication Problems
-
-```bash
-home-diagnostics --days 7 --filter "auth.*fail|pairing.*fail" --errors-only
-```
-
-#### Null/Invalid Values
-
-```bash
-home-diagnostics --days 7 --filter "null|nil|invalid" --errors-only
-```
-
-### Monitoring Home Stability
-
-#### Daily Error Check
-
-```bash
-# Quick summary of today's errors
+# Daily check
 home-diagnostics --days 1 --errors-only --summary
-```
 
-#### Identify Recurring Issues
-
-```bash
-# Show most frequent problems over the last month
+# Identify recurring issues
 home-diagnostics --days 30 --errors-only --dedupe
 ```
 
-#### Recent Activity
-
-```bash
-# Check what happened in the last 2 hours
-home-diagnostics --hours 2 --errors-only
-```
-
-### Exporting for External Analysis
-
-#### Export Raw Logs
+### Export for Analysis
 
 ```bash
 # All logs
@@ -103,20 +60,7 @@ home-diagnostics --days 14 --errors-only --raw > errors.txt
 home-diagnostics --days 7 --filter "hue" --raw > hue-logs.txt
 ```
 
-#### Process with Unix Tools
-
-```bash
-# Find bridge-related entries
-home-diagnostics --days 7 --raw | grep -i "bridge"
-
-# Count occurrences of specific errors
-home-diagnostics --days 7 --raw | grep -i "timeout" | wc -l
-
-# Extract timestamps
-home-diagnostics --days 7 --raw | awk '{print $1, $2}'
-```
-
-### Troubleshooting with Apple Support
+### Prepare Logs for Support
 
 ```bash
 # Comprehensive logs
@@ -129,91 +73,7 @@ home-diagnostics --days 7 --summary > support-summary.txt
 home-diagnostics --days 3 --errors-only --dedupe > recent-errors.txt
 ```
 
-## Output Format Reference
-
-### Standard Output (Analyzed Mode)
-
-```
-HomeDiagnostics - Apple Home Log Analyzer
-==========================================
-
-Collecting logs from the last 7 day(s)...
-
-PROBLEMATIC ENTRIES
-===================
-
-Showing 71 unique problematic entry types (out of 3766 total)
-
-[1100x] [01/28 09:20 - 01/29 15:36] [Home]
-updateHomes(timeout:) found homes [<id>, <id>]
-
-[925x] [01/28 09:20 - 01/29 15:36] [Home]
-refresh(homeManager:timeout:) starting refresh
-
-[925x] [01/28 09:20 - 01/29 15:36] [Home]
-refresh(homeManager:timeout:) finished successfully
-
-[255x] [01/29 09:02 - 01/29 09:03] [Error] [HomeKit]
-API Misuse: hmf_objectForKey with a nil key.
-
-[63x] [01/29 09:02 - 01/29 09:02] [Error] [HomeKit]
-characteristic (null): UUID '(null)' length needs to be 8
-```
-
-### Deduplication Format
-
-When using `--dedupe`, entries show:
-
-```
-[COUNT×] [FIRST_TIME - LAST_TIME] [LEVEL] [SUBSYSTEM]
-Message text...
-```
-
-**Components:**
-- `[COUNT×]`: Number of occurrences (e.g., `[255x]`)
-- `[FIRST_TIME - LAST_TIME]`: Time range from first to last occurrence
-  - Single occurrence: `[01/29 09:02]`
-  - Multiple: `[01/28 09:20 - 01/29 15:36]`
-- `[LEVEL]`: Log level (Error, Fault, Warning) - Info/Debug omitted
-- `[SUBSYSTEM]`: Shortened subsystem name (HomeKit, Home, homed)
-
-### Color Coding
-
-- **Errors/Faults**: Red text (bold)
-- **Warnings**: Yellow text (bold)
-- **Metadata**: Gray/dimmed (timestamps, subsystems, counts)
-- **Info/Debug**: Normal text
-
-### Summary Output
-
-```
-SUMMARY
-=======
-
-Total log entries: 35039
-Errors: 677
-Faults: 0
-Warnings: 0
-Potentially problematic: 3766
-Unique entry types: 71
-
-Entries by subsystem:
-  com.apple.HomeKit: 24694
-  com.apple.Home: 10344
-  com.apple.homed: 1
-```
-
-**Note**: "Unique entry types" appears only with `--dedupe` flag.
-
-### Date Format
-
-Timestamps use compact format to save space:
-- Format: `MM/dd HH:mm`
-- Example: `01/29 14:30`
-- No year shown (assumes current year)
-- No seconds (not needed for most diagnostics)
-
-## Filter Examples
+## Filter Patterns
 
 ### By Device Manufacturer
 
@@ -235,9 +95,6 @@ home-diagnostics --filter "lifx"
 
 # Lutron Caseta
 home-diagnostics --filter "lutron|caseta"
-
-# Logitech Harmony
-home-diagnostics --filter "logitech|harmony"
 
 # August/Yale locks
 home-diagnostics --filter "august|yale"
@@ -306,7 +163,7 @@ home-diagnostics --filter "timeout.*accessory|accessory.*timeout"
 home-diagnostics --filter "code[:\s]+(52|54|56)"
 ```
 
-## Troubleshooting Workflows
+## Troubleshooting
 
 ### Workflow 1: Device Suddenly Stopped Responding
 
@@ -374,7 +231,34 @@ grep "unreachable" logs.txt | cut -d' ' -f2 | sort | uniq -c
 home-diagnostics --days 30 --summary
 ```
 
-## Understanding Common Error Messages
+### Common Issues and Solutions
+
+#### No Logs Collected
+
+- Increase time window (`--days 30`)
+- Add `--detailed` to include debug logs
+- Remove `--filter` temporarily
+- Ensure Home app is active and syncing
+
+#### Permission Issues
+
+The tool uses standard `log show` command which should work without special permissions. Ensure you're running from Terminal.
+
+#### Slow Performance
+
+- Use shorter time windows
+- Avoid `--detailed` flag
+- Use `--errors-only` to reduce volume
+- Try `--summary` for quick statistics
+
+#### Filter Not Working
+
+- Check regex syntax (use `|` for OR, `.*` for wildcards)
+- Try plain text search first
+- Use `--verbose` to see diagnostic output
+- Test filter without `--errors-only` to see all matches
+
+## Common Error Messages
 
 ### Connection Issues
 
@@ -421,24 +305,33 @@ home-diagnostics --days 30 --summary
 - Event routing issue, usually during iCloud sync
 - May resolve itself after a few minutes
 
-## Performance Notes
+## Regex Quick Reference
 
-### Typical Execution Times
+For advanced filtering:
 
-| Command | Typical Duration |
-|---------|------------------|
-| `--days 7` | 10-20 seconds |
-| `--days 7 --detailed` | 2-5 minutes |
-| `--days 14` | 15-30 seconds |
-| `--days 14 --detailed` | 5-10 minutes |
-| `--hours 6` | 5-10 seconds |
-| `--summary` | Same as regular (analysis is fast) |
-| `--dedupe` | +2-5 seconds (additional grouping) |
+| Pattern | Meaning | Example |
+|---------|---------|---------|
+| `\|` | OR (alternation) | `"hue\|bridge"` matches either |
+| `.` | Any character | `"con.ect"` matches "connect" |
+| `.*` | Zero or more characters | `"timeout.*lamp"` |
+| `^` | Start of line | `"^Error"` |
+| `$` | End of line | `"failed$"` |
+| `[abc]` | Any of a, b, or c | `"[Hh]ue"` |
+| `\d` | Any digit | `"timeout\d+"` |
+| `\s` | Whitespace | `"error\s+message"` |
 
-### Performance Tips
+**Note**: If your regex is invalid, the tool automatically falls back to plain text search.
 
-1. **Start with shorter time windows**: Use `--hours` or `--days 1` first
-2. **Avoid `--detailed` unless needed**: Debug logs are voluminous
-3. **Use filters**: Reduces processing and output
-4. **Use `--summary` for quick checks**: Fastest option
-5. **Use `--errors-only`**: Filters before analysis (faster)
+## Common Patterns and Their Meanings
+
+| Pattern Seen | Likely Cause | Action |
+|--------------|--------------|--------|
+| Repeated "(null) is not of type..." | Device not reporting characteristics | Restart bridge/device |
+| "timeout" + device name | Network/device unreachable | Check connectivity |
+| "bridge" + "unreachable" | Hub offline | Check bridge power/network |
+| "Failed to sync with iCloud" | Network/iCloud issues | Check internet connection |
+| "Authentication failed" | Pairing issue | Re-pair device in Home app |
+| "database" + "Fault" | Home database corruption | May need Home app reset |
+| High refresh counts | Normal operation | No action needed |
+| "No matching HMHome" | Configuration mismatch | Check Home app setup |
+| "pairing.*fail" | Cannot establish connection | Reset and re-pair device |
