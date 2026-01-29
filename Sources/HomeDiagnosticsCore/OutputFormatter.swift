@@ -104,13 +104,18 @@ private extension OutputFormatter {
 
   /// Groups log entries by their deduplication key.
   ///
-  /// Collects entries with identical normalized messages and creates
-  /// `GroupedLogEntry` instances containing occurrence counts and time ranges.
-  /// Groups are sorted by occurrence count (descending).
+  /// Uses Phase 1 pattern-based normalization to group entries with identical
+  /// normalized messages. Creates `GroupedLogEntry` instances containing
+  /// occurrence counts and time ranges. Groups are sorted by occurrence count (descending).
+  ///
+  /// Note: Phase 2 (token-based similarity) is available but not enabled here due to
+  /// performance considerations with large datasets. Phase 1 normalization (pattern replacement
+  /// for UUIDs, MACs, addresses, numbers, etc.) provides sufficient deduplication for most cases.
   ///
   /// - Parameter entries: Log entries to group.
   /// - Returns: Array of grouped entries sorted by frequency.
   func groupEntries(_ entries: [LogEntry]) -> [GroupedLogEntry] {
+    // Phase 1: Group by exact deduplication key (normalized message)
     let grouped = Dictionary(grouping: entries) { $0.deduplicationKey }
 
     return grouped.map { _, entries in

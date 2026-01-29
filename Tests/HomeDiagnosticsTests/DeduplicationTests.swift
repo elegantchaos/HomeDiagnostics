@@ -162,4 +162,210 @@ struct DeduplicationTests {
       normalized
         == "Device [<id>] MAC <mac> at <addr> failed after <duration> with code <n>")
   }
+
+  // MARK: - Phase 1 Enhancement Tests
+
+  /// Tests bracket prefix normalization
+  @Test("Normalize bracket prefixes with UUID/MAC/Number/Bool")
+  func testNormalizeBracketPrefix() async throws {
+    let testCases = [
+      // Standard format with YES
+      (
+        "[D3AAD67C-68AB-4261-86AC-7AB8969C6203/0B:10:14:18:2B:E3+1/YES] Failed to save",
+        "[<prefix>] Failed to save"
+      ),
+      // Standard format with NO
+      (
+        "[4C2778CE-E310-4C51-BACB-766111A6D729/60:97:3C:21:F9:6F+1/NO] Failed to save",
+        "[<prefix>] Failed to save"
+      ),
+      // Large number in prefix
+      (
+        "[97F905BE-F58F-5694-A9A3-7BCC54B2FD82/45:59:90:5D:AE:C3+6623462395620228/YES] unreachable",
+        "[<prefix>] unreachable"
+      ),
+      // Lowercase yes/no
+      (
+        "[A1B2C3D4-E5F6-7890-ABCD-EF1234567890/AA:BB:CC:DD:EE:FF+123/yes] message",
+        "[<prefix>] message"
+      ),
+    ]
+
+    for (input, expected) in testCases {
+      let entry = LogEntry(
+        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+        message: input)
+      #expect(entry.normalizedMessage == expected)
+    }
+  }
+
+  /// Tests object description normalization
+  @Test("Normalize object descriptions with memory addresses")
+  func testNormalizeObjectDescriptions() async throws {
+    let testCases = [
+      // HMFMessage object
+      (
+        "Failed to find matching identity for <HMFMessage: 0x813f244b0>",
+        "Failed to find matching identity for <obj>"
+      ),
+      // HMBLocalDatabase object
+      (
+        "Creating database <HMBLocalDatabase: 0x812345678>",
+        "Creating database <obj>"
+      ),
+      // CKContainerID object
+      (
+        "Container <CKContainerID: 0x813355bf0> initialized",
+        "Container <obj> initialized"
+      ),
+      // Multiple objects
+      (
+        "Object <HMDDevice: 0xabc123> sent to <HMFQueue: 0xdef456>",
+        "Object <obj> sent to <obj>"
+      ),
+    ]
+
+    for (input, expected) in testCases {
+      let entry = LogEntry(
+        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+        message: input)
+      #expect(entry.normalizedMessage == expected)
+    }
+  }
+
+  /// Tests boolean literal normalization
+  @Test("Normalize boolean literals")
+  func testNormalizeBooleans() async throws {
+    let testCases = [
+      // YES/NO
+      ("reachable YES, primary resident: NO", "reachable <bool>, primary resident: <bool>"),
+      // yes/no
+      ("enabled yes, active no", "enabled <bool>, active <bool>"),
+      // true/false
+      ("success true, failed false", "success <bool>, failed <bool>"),
+      // Mixed case (should not match - case sensitive)
+      ("Value True or False", "Value True or False"),
+    ]
+
+    for (input, expected) in testCases {
+      let entry = LogEntry(
+        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
+        message: input)
+      #expect(entry.normalizedMessage == expected)
+    }
+  }
+
+  /// Tests error domain normalization
+  @Test("Normalize error domains")
+  func testNormalizeErrorDomains() async throws {
+    let testCases = [
+      // HMErrorDomain
+      (
+        "Error Domain=HMErrorDomain Code=52 UserInfo={...}",
+        "Error Domain=<domain> Code=<n> UserInfo={...}"
+      ),
+      // NSOSStatusErrorDomain
+      (
+        "Error Domain=NSOSStatusErrorDomain Code=-25299",
+        "Error Domain=<domain> Code=-<n>"
+      ),
+      // Custom domain
+      (
+        "Error Domain=MyCustomErrorDomain Code=123",
+        "Error Domain=<domain> Code=<n>"
+      ),
+      // Multiple error domains
+      (
+        "Error Domain=HMErrorDomain outer, Error Domain=NSErrorDomain inner",
+        "Error Domain=<domain> outer, Error Domain=<domain> inner"
+      ),
+    ]
+
+    for (input, expected) in testCases {
+      let entry = LogEntry(
+        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+        message: input)
+      #expect(entry.normalizedMessage == expected)
+    }
+  }
+
+  /// Tests whitespace normalization
+  @Test("Normalize whitespace")
+  func testNormalizeWhitespace() async throws {
+    let testCases = [
+      // Multiple spaces
+      ("Device    failed    with    error", "Device failed with error"),
+      // Tabs and spaces
+      ("Device\t\tfailed  with   error", "Device failed with error"),
+      // Leading and trailing spaces
+      ("  Device failed  ", "Device failed"),
+      // Newlines (treated as whitespace)
+      ("Device\nfailed\nwith\nerror", "Device failed with error"),
+    ]
+
+    for (input, expected) in testCases {
+      let entry = LogEntry(
+        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+        message: input)
+      #expect(entry.normalizedMessage == expected)
+    }
+  }
+
+  /// Tests real-world message from logs: "Failed to save public key"
+  @Test("Real-world: Failed to save public key messages deduplicate")
+  func testRealWorldPublicKeyFailure() async throws {
+    let message1 =
+      "[D3AAD67C-68AB-4261-86AC-7AB8969C6203/0B:10:14:18:2B:E3+1/NO] Failed to save public key(<private>) pairing username(<private>): Error Domain=HMErrorDomain Code=52 UserInfo={NSLocalizedDescription=<private>, NSUnderlyingError=0x814188330 {Error Domain=NSOSStatusErrorDomain Code=-25299 UserInfo={NSLocalizedDescription=<private>}}}"
+
+    let message2 =
+      "[4C2778CE-E310-4C51-BACB-766111A6D729/60:97:3C:21:F9:6F+1/NO] Failed to save public key(<private>) pairing username(<private>): Error Domain=HMErrorDomain Code=52 UserInfo={NSLocalizedDescription=<private>, NSUnderlyingError=0x813f84b10 {Error Domain=NSOSStatusErrorDomain Code=-25299 UserInfo={NSLocalizedDescription=<private>}}}"
+
+    let entry1 = LogEntry(
+      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+      message: message1)
+    let entry2 = LogEntry(
+      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+      message: message2)
+
+    // Both should normalize to the same message
+    #expect(entry1.normalizedMessage == entry2.normalizedMessage)
+    #expect(entry1.deduplicationKey == entry2.deduplicationKey)
+  }
+
+  /// Tests real-world message from logs: "unreachable duration"
+  @Test("Real-world: Unreachable duration messages deduplicate")
+  func testRealWorldUnreachableDuration() async throws {
+    let message1 =
+      "[97F905BE-F58F-5694-A9A3-7BCC54B2FD82/45:59:90:5D:AE:C3+6623462395620228/YES] unreachable duration for <private> is 1.774517059326172 seconds - reachable YES, primary resident: NO"
+
+    let message2 =
+      "[0FC37221-74DB-41F5-873B-BCA5BB70BFD1/45:59:90:5D:AE:C3+1/YES] unreachable duration for <private> is 1.801419973373413 seconds - reachable YES, primary resident: NO"
+
+    let entry1 = LogEntry(
+      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+      message: message1)
+    let entry2 = LogEntry(
+      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+      message: message2)
+
+    // Both should normalize to the same message
+    #expect(entry1.normalizedMessage == entry2.normalizedMessage)
+    #expect(entry1.deduplicationKey == entry2.deduplicationKey)
+  }
+
+  /// Tests Phase 1 end-to-end: complex real-world message normalization
+  @Test("Phase 1 end-to-end: Full normalization pipeline")
+  func testPhase1EndToEnd() async throws {
+    let message =
+      "[A1B2C3D4-E5F6-7890-ABCD-EF1234567890/AA:BB:CC:DD:EE:FF+123/YES] Device failed with <HMFMessage: 0x813f244b0> Error Domain=HMErrorDomain Code=52 after 1.5 seconds at 2026-01-29 14:30:15.123456 - reachable YES"
+
+    let entry = LogEntry(
+      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
+      message: message)
+
+    let expected =
+      "[<prefix>] Device failed with <obj> Error Domain=<domain> Code=<n> after <duration> at <timestamp> - reachable <bool>"
+
+    #expect(entry.normalizedMessage == expected)
+  }
 }

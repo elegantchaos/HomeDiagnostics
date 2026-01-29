@@ -60,13 +60,31 @@ public struct LogEntry: Sendable {
   /// The message with variable values replaced by placeholders for deduplication.
   ///
   /// Normalizes the message by replacing variable values with generic placeholders
-  /// to enable grouping of similar log messages. Replaces UUIDs with `<id>`,
-  /// MAC addresses with `<mac>`, duration values with `<duration>`, timestamps
-  /// with `<timestamp>`, hex addresses with `<addr>`, and all other numbers with `<n>`.
+  /// to enable grouping of similar log messages. Applies multiple normalization passes:
+  /// 1. Structural patterns (bracket prefixes, object descriptions)
+  /// 2. Variable values (UUIDs, MACs, durations, timestamps, hex addresses, numbers)
+  /// 3. Boolean literals (YES/NO)
+  /// 4. Error domains
+  /// 5. Whitespace normalization
   /// This creates less specific messages that are more likely to match,
   /// improving deduplication effectiveness.
   public var normalizedMessage: String {
     var normalized = message
+
+    // Phase 1: Structural patterns (applied first for maximum generalization)
+
+    // Replace bracket prefixes: [UUID/MAC+NUMBER/BOOL] → [<prefix>]
+    // Example: [D3AAD67C-68AB-4261-86AC-7AB8969C6203/0B:10:14:18:2B:E3+1/NO] → [<prefix>]
+    let prefixPattern =
+      /\[[0-9A-Fa-f-]+\/[0-9A-Fa-f:]+\+\d+\/(YES|NO|yes|no)\]/
+    normalized = normalized.replacing(prefixPattern, with: "[<prefix>]")
+
+    // Replace object descriptions with memory addresses: <ClassName: 0xADDRESS> → <obj>
+    // Example: <HMFMessage: 0x813f244b0> → <obj>
+    let objectPattern = /<[A-Z][A-Za-z0-9]*:\s*0x[0-9A-Fa-f]+>/
+    normalized = normalized.replacing(objectPattern, with: "<obj>")
+
+    // Phase 2: Variable values (specific to general order to prevent false matches)
 
     // Replace UUIDs (8-4-4-4-12 format) with <id>
     let uuidPattern =
@@ -74,7 +92,8 @@ public struct LogEntry: Sendable {
     normalized = normalized.replacing(uuidPattern, with: "<id>")
 
     // Replace MAC addresses (6 pairs of hex digits separated by colons) with <mac>
-    let macPattern = /[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}/
+    let macPattern =
+      /[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}/
     normalized = normalized.replacing(macPattern, with: "<mac>")
 
     // Replace duration values (e.g., "1.234 seconds", "5.0 ms") with <duration>
@@ -93,6 +112,25 @@ public struct LogEntry: Sendable {
     // This catches standalone numbers like "123", "45.67", etc.
     let numberPattern = /\b\d+\.?\d*\b/
     normalized = normalized.replacing(numberPattern, with: "<n>")
+
+    // Phase 3: Boolean and error domain normalization
+
+    // Replace boolean literals (YES/NO, yes/no, true/false) with <bool>
+    let boolPattern = /\b(YES|NO|yes|no|true|false)\b/
+    normalized = normalized.replacing(boolPattern, with: "<bool>")
+
+    // Replace error domain names: Error Domain=SomeDomain → Error Domain=<domain>
+    let errorDomainPattern = /Error Domain=[A-Za-z][A-Za-z0-9]*/
+    normalized = normalized.replacing(errorDomainPattern, with: "Error Domain=<domain>")
+
+    // Phase 4: Whitespace normalization
+
+    // Collapse multiple spaces into single space
+    let multiSpacePattern = /\s+/
+    normalized = normalized.replacing(multiSpacePattern, with: " ")
+
+    // Trim leading and trailing whitespace
+    normalized = normalized.trimmingCharacters(in: .whitespaces)
 
     return normalized
   }
