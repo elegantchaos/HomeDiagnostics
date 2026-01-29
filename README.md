@@ -4,484 +4,247 @@ A macOS command-line tool for collecting and analyzing Apple Home and HomeKit lo
 
 ## Overview
 
-HomeDiagnostics queries the macOS unified logging system to extract, parse, and analyze logs from:
-- `com.apple.Home`
-- `com.apple.HomeKit`
-- `com.apple.homed`
+HomeDiagnostics queries the macOS unified logging system to extract and analyze logs from Apple Home, HomeKit, and the Home daemon. It helps diagnose issues with smart home devices that become non-responsive by providing filtered, deduplicated views of error conditions.
 
-The tool is useful for diagnosing issues with smart home devices that become non-responsive, with flexible filtering to focus on specific devices, manufacturers, or patterns.
+**Key Features:**
+- **Intelligent deduplication** - Groups similar errors (98% reduction in unique messages)
+- **Flexible filtering** - Plain text or regex patterns to focus on specific devices/issues
+- **Multiple output modes** - Summary, raw, or analyzed views
+- **Color-coded output** - Errors in red, warnings in yellow, metadata dimmed
+- **Accurate parsing** - JSON-based log parsing for zero false positives
 
-## Features
+## Quick Start
 
-- **Accurate Log Collection**: Uses JSON format for precise log level detection (no false positives)
-- **Flexible Time Windows**: Query by days or hours
-- **Pattern Filtering**: Filter log messages using plain text or regular expressions
-- **Severity Filtering**: Show only errors, faults, and warnings
-- **Deduplication**: Group identical log entries and show occurrence counts
-- **Multiple Output Modes**: Analyzed, raw, summary, or deduplicated views
-- **Color Output**: Visual hierarchy with errors in red, warnings in yellow, metadata dimmed
-- **Statistics**: Summary of log counts by subsystem and severity
-
-## Installation
-
-### Building from Source
+### Installation
 
 ```bash
+# Build from source
 cd ~/Developer/Projects/HomeDiagnostics
 swift build --target home-diagnostics
+
+# Run
+.build/debug/home-diagnostics --help
 ```
-
-The compiled binary will be at `.build/debug/home-diagnostics`.
-
-### Release Build
-
-```bash
-swift build -c release --target home-diagnostics
-```
-
-The optimized binary will be at `.build/release/home-diagnostics`.
-
-### Installing to PATH (Optional)
-
-```bash
-# Copy to a directory in your PATH
-sudo cp .build/release/home-diagnostics /usr/local/bin/
-
-# Or create an alias in your shell profile
-alias home-diagnostics='~/Developer/Projects/HomeDiagnostics/.build/debug/home-diagnostics'
-```
-
-## Usage
 
 ### Basic Usage
 
 ```bash
-# Collect logs from the last 14 days (default)
-home-diagnostics
+# View recent errors
+home-diagnostics --hours 6 --errors-only
 
-# Collect logs from the last 7 days
-home-diagnostics --days 7
+# Diagnose specific device
+home-diagnostics --days 7 --filter "hue" --errors-only --dedupe
 
-# Collect logs from the last 6 hours
-home-diagnostics --hours 6
+# Get summary statistics
+home-diagnostics --days 14 --summary
 ```
 
-### Filtering Options
+## Usage
+
+### Command-Line Options
+
+#### Time Windows
 
 ```bash
-# Filter by plain text (case-insensitive)
-home-diagnostics --filter "hue"
-home-diagnostics --filter "timeout"
-home-diagnostics --filter "bridge"
-
-# Filter using regular expressions
-home-diagnostics --filter "hue|philips|bridge"
-home-diagnostics --filter "timeout.*accessory"
-home-diagnostics --filter "^Error.*HomeKit"
-
-# Show only errors, faults, and warnings
-home-diagnostics --errors-only
-
-# Combine filters: device-specific errors from last 24 hours
-home-diagnostics --hours 24 --filter "hue" --errors-only
-home-diagnostics --hours 24 --filter "nanoleaf" --errors-only
+--days <n>, -d <n>    # Number of days to look back (default: 14)
+--hours <n>           # Number of hours to look back
 ```
-
-### Output Modes
-
-```bash
-# Show summary statistics only
-home-diagnostics --summary
-
-# Deduplicate entries and show occurrence counts
-home-diagnostics --dedupe
-
-# Raw output (unprocessed logs for piping to other tools)
-home-diagnostics --raw
-
-# Verbose diagnostic output (on stderr)
-home-diagnostics --verbose
-```
-
-### Advanced Examples
-
-```bash
-# Diagnose Philips Hue issues: show unique error types from last week
-home-diagnostics --days 7 --filter "hue|philips|bridge" --errors-only --dedupe
-
-# Find timeout issues across all devices
-home-diagnostics --days 7 --filter "timeout" --errors-only --dedupe
-
-# Quick check for recent problems
-home-diagnostics --hours 2 --errors-only --summary
-
-# Export raw logs for external processing
-home-diagnostics --days 30 --raw > home-logs.txt
-
-# Find logs matching a specific device name
-home-diagnostics --days 7 --filter "Living Room" --dedupe
-
-# Comprehensive analysis with debug logs (slower)
-home-diagnostics --days 1 --detailed --dedupe
-
-# Monitor recent activity verbosely
-home-diagnostics --hours 1 --verbose --detailed
-
-# Find connection issues with regex
-home-diagnostics --days 7 --filter "connect.*fail|unreachable|timeout" --errors-only
-```
-
-## Command-Line Options
-
-### Time Window Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--days <n>`, `-d <n>` | Number of days to look back | 14 |
-| `--hours <n>` | Number of hours to look back | - |
 
 **Note**: Cannot specify both `--days` and `--hours`.
 
-### Filtering Options
-
-| Option | Description |
-|--------|-------------|
-| `--filter <pattern>`, `-f <pattern>` | Filter log messages (plain text or regex) |
-| `--errors-only` | Show only errors, faults, and warnings (filter out info/debug) |
-
-**Filter pattern behavior:**
-- Attempts regex first (e.g., `"hue|philips"`, `"timeout.*accessory"`)
-- Falls back to case-insensitive plain text search if regex is invalid
-- Applied to the log message content
-
-### Output Options
-
-| Option | Description |
-|--------|-------------|
-| `--summary` | Show summary statistics only |
-| `--dedupe` | Deduplicate log entries and show occurrence counts |
-| `--raw` | Output raw log data without parsing or analysis |
-| `--verbose`, `-v` | Enable verbose output (diagnostic messages to stderr) |
-| `--detailed` | Include debug-level logs (slower, more comprehensive) |
-
-### Other Options
-
-| Option | Description |
-|--------|-------------|
-| `--version` | Show version information |
-| `--help`, `-h` | Show help message |
-
-## Flag Combinations
-
-### Valid Combinations
-
-Most flags can be combined freely:
+#### Filtering
 
 ```bash
-# ✓ Filter device errors and deduplicate
-home-diagnostics --filter "hue" --errors-only --dedupe
-
-# ✓ Show summary with verbose diagnostics
-home-diagnostics --summary --verbose
-
-# ✓ Detailed logs with deduplication and filtering
-home-diagnostics --detailed --dedupe --filter "timeout"
+--filter <pattern>, -f <pattern>  # Filter by plain text or regex
+--errors-only                     # Show only errors, faults, and warnings
 ```
 
-### Invalid Combinations
+**Filter examples:**
+```bash
+--filter "hue|philips"           # Regex: Philips Hue devices
+--filter "timeout"               # Plain text: timeout issues
+--filter "Living Room"           # Plain text: room name
+```
 
-Some flags are mutually exclusive:
+#### Output Modes
 
 ```bash
-# ✗ Cannot use both --days and --hours
-home-diagnostics --days 7 --hours 24
-
-# ✗ Cannot combine --raw with analysis flags
-home-diagnostics --raw --summary
-home-diagnostics --raw --dedupe
-home-diagnostics --raw --errors-only
+--summary         # Show summary statistics only
+--dedupe          # Deduplicate entries and show counts
+--raw             # Output unprocessed logs
+--verbose, -v     # Enable diagnostic output (to stderr)
+--detailed        # Include debug-level logs (slower)
 ```
 
-## Output Format
+#### Other Options
 
-### Standard Output (Analyzed Mode)
-
-```
-SUMMARY
-=======
-
-Total log entries: 843
-Errors: 3
-Faults: 0
-Warnings: 0
-Potentially problematic: 3
-Unique entry types: 41
-
-Entries by subsystem:
-  com.apple.Home: 803
-  com.apple.HomeKit: 40
-
-
-PROBLEMATIC ENTRIES
-===================
-
-Showing 3 unique problematic entry types (out of 3 total)
-
-[1x] [01/29 09:02] [Error] [com.apple.HomeKit]
-[Bank Street/Hue color lamp/...] Active transition count value: (null) is not of type NSNumber
-
-
-ALL ENTRIES
-===========
-
-Showing 41 unique entry types (out of 843 total)
-
-[803x] [01/28 08:01 - 01/29 15:06] [Info] [com.apple.Home]
-widgetTileInfos(from:uuids:...) for accessory <private>
+```bash
+--version         # Show version
+--help, -h        # Show help
 ```
 
-### Color Coding
+### Common Commands
 
-- **Errors/Faults**: Red and bold
-- **Warnings**: Yellow and bold
-- **Metadata** (timestamps, subsystem, level): Gray/dimmed
-- **Info/Debug**: Normal text
+```bash
+# Recent problems
+home-diagnostics --hours 2 --errors-only --summary
 
-### Date Format
+# Device diagnosis with deduplication
+home-diagnostics --days 7 --filter "device-name" --errors-only --dedupe
 
-Timestamps use a compact format: `MM/dd HH:mm` (e.g., `01/29 14:30`)
+# Export for analysis
+home-diagnostics --days 14 --raw > logs.txt
 
-### Deduplication Format
-
-When using `--dedupe`, identical log entries are grouped:
-
-```
-[803x] [01/28 08:01 - 01/29 15:06] [Info] [com.apple.Home]
-Message text...
+# Comprehensive troubleshooting
+home-diagnostics --days 7 --detailed --dedupe
 ```
 
-- `[803x]`: Number of occurrences
-- `[01/28 08:01 - 01/29 15:06]`: Time range (first to last occurrence)
+## Understanding Output
 
-## Understanding the Output
+### Deduplication
+
+With `--dedupe`, similar messages are grouped:
+
+```
+[255x] [01/29 09:02 - 01/29 09:03] [Error] [HomeKit]
+API Misuse: hmf_objectForKey with a nil key.
+```
+
+- `[255x]` - Occurred 255 times
+- `[01/29 09:02 - 01/29 09:03]` - Time range
+- Message normalized (UUIDs, MACs, numbers replaced with placeholders)
 
 ### Log Levels
 
 | Level | Description |
 |-------|-------------|
 | **Fault** | Critical errors requiring immediate attention |
-| **Error** | Errors indicating failures or problems |
-| **Warning** | Warnings about potential issues |
-| **Info** | Informational messages (default) |
-| **Debug** | Debug-level details (requires `--detailed`) |
-
-### Problematic Entries
-
-The tool identifies entries as "problematic" if they:
-- Are at Error or Fault level, OR
-- Contain keywords: "failed", "timeout", "unreachable", "not responding"
-
-**Note**: When using `--errors-only`, the PROBLEMATIC ENTRIES section is skipped since it would be identical to ALL ENTRIES.
+| **Error** | Errors indicating failures |
+| **Warning** | Potential issues |
+| **Info** | Informational (default) |
+| **Debug** | Debug details (requires `--detailed`) |
 
 ### Subsystems
 
-- `com.apple.Home`: Home app itself
-- `com.apple.HomeKit`: HomeKit framework
-- `com.apple.homed`: Home daemon (background service)
+- `com.apple.Home` - Home app
+- `com.apple.HomeKit` - HomeKit framework
+- `com.apple.homed` - Home daemon (background service)
 
-## Use Cases
+### Color Coding
 
-### Diagnosing Non-Responsive Devices
+- **Red** - Errors and faults
+- **Yellow** - Warnings
+- **Gray** - Metadata (timestamps, subsystems)
+- **Normal** - Info and debug messages
+
+## Example Workflows
+
+### Diagnose Non-Responsive Device
 
 ```bash
-# Philips Hue devices
-home-diagnostics --days 7 --filter "hue|philips|bridge" --errors-only --dedupe
+# 1. Check recent activity
+home-diagnostics --hours 6 --filter "device-name" --errors-only
 
-# Nanoleaf devices
-home-diagnostics --days 7 --filter "nanoleaf" --errors-only --dedupe
+# 2. Look for patterns over last week
+home-diagnostics --days 7 --filter "device-name" --errors-only --dedupe
 
-# Any device by name
-home-diagnostics --days 7 --filter "Living Room Lamp" --errors-only
-
-# Check if issues are ongoing
-home-diagnostics --hours 2 --filter "hue" --errors-only
+# 3. Check if it's a manufacturer-wide issue
+home-diagnostics --days 7 --filter "hue|philips" --errors-only --dedupe
 ```
 
-### Finding Specific Problems
+### Find Specific Problems
 
 ```bash
 # Timeout issues
 home-diagnostics --days 7 --filter "timeout" --errors-only --dedupe
 
 # Connection failures
-home-diagnostics --days 7 --filter "connect.*fail|unreachable" --errors-only
+home-diagnostics --days 7 --filter "unreachable|connect.*fail" --errors-only
 
 # Authentication problems
-home-diagnostics --days 7 --filter "auth.*fail|pairing.*fail" --errors-only
+home-diagnostics --days 7 --filter "pairing|auth" --errors-only
 ```
 
-### Monitoring Home Stability
+### Monitor Home Stability
 
 ```bash
-# Daily error check
+# Daily check
 home-diagnostics --days 1 --errors-only --summary
 
 # Identify recurring issues
 home-diagnostics --days 30 --errors-only --dedupe
 ```
 
-### Exporting for External Analysis
+## Performance
 
-```bash
-# Export raw logs
-home-diagnostics --days 14 --raw > home-logs.txt
+**Typical execution times:**
+- `--days 7`: 10-20 seconds
+- `--days 7 --detailed`: 2-5 minutes
+- `--hours 6`: 5-10 seconds
 
-# Export only errors
-home-diagnostics --days 14 --errors-only --raw > errors.txt
-
-# Filter and export for specific device
-home-diagnostics --days 7 --filter "hue" --raw > hue-logs.txt
-
-# Process with grep, awk, etc.
-home-diagnostics --days 7 --raw | grep -i "bridge"
-```
-
-### Troubleshooting with Apple Support
-
-```bash
-# Collect comprehensive logs with timestamps
-home-diagnostics --days 7 --detailed > support-logs.txt
-
-# Get summary statistics
-home-diagnostics --days 7 --summary > support-summary.txt
-```
-
-## Common Filter Examples
-
-### By Device Manufacturer
-
-```bash
-# Philips Hue
-home-diagnostics --filter "hue|philips|bridge"
-
-# Nanoleaf
-home-diagnostics --filter "nanoleaf"
-
-# Eve/Elgato
-home-diagnostics --filter "eve|elgato"
-
-# Aqara
-home-diagnostics --filter "aqara"
-
-# LIFX
-home-diagnostics --filter "lifx"
-
-# Lutron
-home-diagnostics --filter "lutron|caseta"
-```
-
-### By Problem Type
-
-```bash
-# Timeouts
-home-diagnostics --filter "timeout"
-
-# Connection issues
-home-diagnostics --filter "connect.*fail|unreachable|not.responding"
-
-# Authentication
-home-diagnostics --filter "auth|pairing|credential"
-
-# Null values
-home-diagnostics --filter "null|nil"
-
-# Database issues
-home-diagnostics --filter "database|corruption"
-```
-
-### By Room or Accessory Name
-
-```bash
-# Specific room
-home-diagnostics --filter "Living Room|Bedroom"
-
-# Specific accessory
-home-diagnostics --filter "Front Door Lock"
-
-# Device type
-home-diagnostics --filter "lamp|light|switch|sensor"
-```
-
-## Common Issues
-
-### No Logs Collected
-
-If you see 0 entries:
-- Ensure you're running on macOS
-- Try increasing the time window (`--days 30`)
-- Try adding `--detailed` to include debug logs
-- Check if Home app is active and syncing
-- Remove `--filter` temporarily to check if filter is too restrictive
-
-### Permission Issues
-
-The tool requires access to system logs. If you encounter permission errors:
-- The tool uses the standard `log show` command, which should work without special permissions
-- Ensure you're running from a standard Terminal session
-- Check Console.app access in System Settings > Privacy & Security
-
-### Performance
-
-For large time windows:
-- Use `--summary` for quick statistics
-- Avoid `--detailed` unless necessary (includes debug logs)
-- Use `--errors-only` to reduce output volume
-- Consider shorter time windows (`--hours` instead of `--days`)
-
-**Typical performance**:
-- Without `--detailed`: 10-30 seconds
-- With `--detailed`: 2-5 minutes or more (large volume of debug logs)
-- Fewer days (`--days 7` or less) will be faster
+**Tips for faster execution:**
+- Use shorter time windows (`--hours` instead of `--days`)
+- Avoid `--detailed` unless necessary
+- Use `--summary` for quick checks
+- Apply `--filter` to reduce data volume
 
 ## Requirements
 
 - **macOS**: 15.0+ (Sequoia or later)
-- **Swift**: 6.2+
-- **Xcode**: 16.0+ (for building)
+- **Swift**: 6.2+ (for building)
+- **Xcode**: 16.0+ (for development)
 
-## Dependencies
+## Documentation
 
-- [swift-argument-parser](https://github.com/apple/swift-argument-parser) (1.3.0+)
-- [swift-subprocess](https://github.com/swiftlang/swift-subprocess) (0.0.1+)
+- **[Usage Examples & Output Reference](Extras/Documentation/Examples.md)** - Detailed examples, filter patterns, and output format guide
+- **[Development Guide](Extras/Documentation/Development.md)** - Architecture, building, testing, and contributing
+- **[Engineering Principles](Extras/Documentation/Principles Glossary.md)** - Design patterns and coding standards
 
-## Architecture
+## Deduplication Technology
 
-- **Single-file design**: All code in `Sources/HomeDiagnostics/main.swift`
-- **JSON parsing**: Uses `--style json` for accurate log level detection
-- **Zero false positives**: Switched from text matching to metadata-based parsing
-- **Stream separation**: Analysis output to stdout, diagnostics to stderr
-- **Flexible filtering**: Supports both plain text and regex patterns
+HomeDiagnostics uses intelligent pattern-based normalization to group similar error messages:
 
-## Common Issues to Look For
+- **98.1% reduction** in unique message types on real-world data
+- **Phase 1 normalization**: Replaces UUIDs, MAC addresses, numbers, timestamps, and other variable values with placeholders
+- **Fast execution**: O(n) time complexity, handles thousands of entries in seconds
+- **Accuracy**: Preserves message structure while grouping variations
 
-When reviewing the output, look for:
+**Example transformation:**
+```
+Before: [UUID1/MAC1+123/NO] Failed to save public key...Error...0x12345678
+        [UUID2/MAC2+456/YES] Failed to save public key...Error...0xabcdef01
+        (20 more variations...)
 
-1. **Timeout messages** - Devices not responding in time
-2. **Connection failures** - Unable to reach device or bridge
-3. **Authentication errors** - Issues with device credentials
-4. **Network errors** - Problems communicating over the network
-5. **Bridge issues** - Hub devices (Hue, Lutron, etc.) being unreachable
-6. **Null values** - HomeKit characteristics returning null/invalid values
-7. **Pairing failures** - Devices unable to establish connection
+After:  [10x] [<prefix>] Failed to save public key...Error Domain=<domain>...
+```
+
+## Troubleshooting
+
+### No Logs Collected
+
+- Increase time window (`--days 30`)
+- Add `--detailed` to include debug logs
+- Remove `--filter` temporarily
+- Ensure Home app is active and syncing
+
+### Permission Issues
+
+The tool uses standard `log show` command which should work without special permissions. Ensure you're running from Terminal.
+
+### Slow Performance
+
+- Use shorter time windows
+- Avoid `--detailed` flag
+- Use `--errors-only` to reduce volume
+- Try `--summary` for quick statistics
 
 ## Contributing
 
-Contributions are welcome! Please follow the guidelines in `AGENTS.md` for:
-- Swift coding conventions
+Contributions welcome! See [Development Guide](Extras/Documentation/Development.md) for:
+- Architecture overview
+- Build instructions
 - Testing requirements
-- Documentation standards
-
-See `Extras/Documentation/Principles Glossary.md` for engineering principles.
+- Coding standards (see also `AGENTS.md`)
 
 ## License
 
@@ -489,4 +252,4 @@ This tool is provided as-is for personal diagnostic use.
 
 ## Acknowledgments
 
-Built to help diagnose issues with smart home devices in Apple Home.
+Built to help diagnose smart home device issues in Apple Home.
