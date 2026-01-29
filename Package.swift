@@ -13,17 +13,29 @@ let package = Package(
     .package(url: "https://github.com/swiftlang/swift-subprocess.git", from: "0.0.1"),
   ],
   targets: [
-    .executableTarget(
-      name: "home-diagnostics",
+    // Core library with reusable log collection and analysis logic
+    .target(
+      name: "HomeDiagnosticsCore",
       dependencies: [
-        .product(name: "ArgumentParser", package: "swift-argument-parser"),
-        .product(name: "Subprocess", package: "swift-subprocess"),
+        .product(name: "Subprocess", package: "swift-subprocess")
       ]
     ),
+
+    // Command-line executable
+    .executableTarget(
+      name: "HomeDiagnostics",
+      dependencies: [
+        "HomeDiagnosticsCore",
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ],
+      path: "Sources/HomeDiagnostics"
+    ),
+
+    // Unit tests
     .testTarget(
       name: "HomeDiagnosticsTests",
       dependencies: [
-        "home-diagnostics"
+        "HomeDiagnosticsCore"
       ],
       resources: [
         .copy("Resources/sample_logs.json")

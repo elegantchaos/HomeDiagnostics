@@ -156,6 +156,26 @@
       "target": "home-diagnostics",
       "configuration": "release",
       "preLaunchTask": "swift: Build Release home-diagnostics"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:HomeDiagnostics}",
+      "name": "Debug HomeDiagnostics",
+      "target": "HomeDiagnostics",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug HomeDiagnostics"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:HomeDiagnostics}",
+      "name": "Release HomeDiagnostics",
+      "target": "HomeDiagnostics",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release HomeDiagnostics"
     }
   ]
 }
