@@ -73,6 +73,9 @@ struct HomeDiagnostics: AsyncParsableCommand {
   @Flag(name: .long, help: "Output raw log data without parsing or analysis")
   var raw: Bool = false
 
+  @Flag(name: .long, help: "Show only errors, faults, and warnings (filter out info/debug)")
+  var errorsOnly: Bool = false
+
   mutating func run() async throws {
     // Configure verbose output
     isVerbose = verbose
@@ -80,6 +83,11 @@ struct HomeDiagnostics: AsyncParsableCommand {
     // Validate flag combinations
     if raw && (summary || dedupe) {
       printErr("[ERROR] --raw cannot be combined with --summary or --dedupe")
+      throw ExitCode.validationFailure
+    }
+
+    if raw && errorsOnly {
+      printErr("[ERROR] --raw cannot be combined with --errors-only")
       throw ExitCode.validationFailure
     }
 
@@ -112,13 +120,17 @@ struct HomeDiagnostics: AsyncParsableCommand {
       let collector = LogCollector(
         timeInterval: timeInterval,
         includeDebug: detailed,
-        hueOnly: hueOnly
+        hueOnly: hueOnly,
+        errorsOnly: errorsOnly
       )
 
       if !raw {
         printErr("Collecting logs from the last \(timeDescription)...")
         if detailed {
           printErr("(Including debug-level logs - this may take a while)")
+        }
+        if errorsOnly {
+          printErr("(Filtering for errors, faults, and warnings only)")
         }
         printErr("")
       }
@@ -171,6 +183,9 @@ struct LogCollector {
 
   /// Whether to filter for Hue-related entries only
   let hueOnly: Bool
+
+  /// Whether to filter for errors, faults, and warnings only
+  let errorsOnly: Bool
 
   /// Collects Home and HomeKit logs
   func collectLogs() async throws -> [LogEntry] {
@@ -391,12 +406,20 @@ struct LogCollector {
           message: eventMessage
         )
 
+        // Apply filters
+        var shouldInclude = true
+
+        // Filter for errors only if requested
+        if errorsOnly {
+          shouldInclude = shouldInclude && (level == .error || level == .fault || level == .warning)
+        }
+
         // Filter for Hue if requested
         if hueOnly {
-          if entry.containsHueReference {
-            entries.append(entry)
-          }
-        } else {
+          shouldInclude = shouldInclude && entry.containsHueReference
+        }
+
+        if shouldInclude {
           entries.append(entry)
         }
       }

@@ -86,6 +86,36 @@
       ],
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "swift-build"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "name": "Debug HomeDiagnostics - Errors Only",
+      "program": "${workspaceFolder}/.build/debug/home-diagnostics",
+      "args": [
+        "--days",
+        "7",
+        "--errors-only",
+        "--dedupe",
+        "--verbose"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "swift-build"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "name": "Debug HomeDiagnostics - Hue Errors Only",
+      "program": "${workspaceFolder}/.build/debug/home-diagnostics",
+      "args": [
+        "--days",
+        "7",
+        "--hue-only",
+        "--errors-only",
+        "--dedupe"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "swift-build"
     }
   ]
 }
