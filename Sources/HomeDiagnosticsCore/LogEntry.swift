@@ -59,24 +59,40 @@ public struct LogEntry: Sendable {
 
   /// The message with variable values replaced by placeholders for deduplication.
   ///
-  /// Normalizes the message by replacing UUIDs, hex addresses, and timestamps
-  /// with placeholder tokens. This allows grouping similar log messages that
-  /// differ only in specific identifiers or time values.
+  /// Normalizes the message by replacing variable values with generic placeholders
+  /// to enable grouping of similar log messages. Replaces UUIDs with `<id>`,
+  /// MAC addresses with `<mac>`, duration values with `<duration>`, timestamps
+  /// with `<timestamp>`, hex addresses with `<addr>`, and all other numbers with `<n>`.
+  /// This creates less specific messages that are more likely to match,
+  /// improving deduplication effectiveness.
   public var normalizedMessage: String {
     var normalized = message
 
-    // Remove UUIDs (8-4-4-4-12 format)
+    // Replace UUIDs (8-4-4-4-12 format) with <id>
     let uuidPattern =
       /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/
-    normalized = normalized.replacing(uuidPattern, with: "<UUID>")
+    normalized = normalized.replacing(uuidPattern, with: "<id>")
 
-    // Remove hex addresses (0x followed by hex digits)
-    let hexPattern = /0x[0-9A-Fa-f]+/
-    normalized = normalized.replacing(hexPattern, with: "<ADDR>")
+    // Replace MAC addresses (6 pairs of hex digits separated by colons) with <mac>
+    let macPattern = /[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}/
+    normalized = normalized.replacing(macPattern, with: "<mac>")
 
-    // Remove timestamps (common formats)
+    // Replace duration values (e.g., "1.234 seconds", "5.0 ms") with <duration>
+    let durationPattern = /\d+\.?\d*\s*(seconds?|milliseconds?|ms|s)\b/
+    normalized = normalized.replacing(durationPattern, with: "<duration>")
+
+    // Replace timestamps (common formats) with <timestamp>
     let timestampPattern = /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+/
-    normalized = normalized.replacing(timestampPattern, with: "<TIMESTAMP>")
+    normalized = normalized.replacing(timestampPattern, with: "<timestamp>")
+
+    // Replace hex addresses (0x followed by hex digits) with <addr>
+    let hexPattern = /0x[0-9A-Fa-f]+/
+    normalized = normalized.replacing(hexPattern, with: "<addr>")
+
+    // Replace remaining floating point and integer numbers with <n>
+    // This catches standalone numbers like "123", "45.67", etc.
+    let numberPattern = /\b\d+\.?\d*\b/
+    normalized = normalized.replacing(numberPattern, with: "<n>")
 
     return normalized
   }

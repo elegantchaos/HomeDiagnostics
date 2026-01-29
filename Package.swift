@@ -23,7 +23,7 @@ let package = Package(
 
     // Command-line executable
     .executableTarget(
-      name: "HomeDiagnostics",
+      name: "home-diagnostics",
       dependencies: [
         "HomeDiagnosticsCore",
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
