@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "name": "Debug HomeDiagnostics - Hue Devices",
+      "program": "${workspaceFolder}/.build/debug/home-diagnostics",
+      "args": [
+        "--days",
+        "14",
+        "--hue-only",
+        "--verbose"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "swift-build"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "name": "Debug HomeDiagnostics - All Devices",
+      "program": "${workspaceFolder}/.build/debug/home-diagnostics",
+      "args": [
+        "--all"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "swift-build"
+    },
+  ]
+}

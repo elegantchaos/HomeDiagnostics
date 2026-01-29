@@ -7,7 +7,7 @@ It may contain both an Xcode project, and additional code organized into local S
 
 The goal of these instructions is to keep contributions modern, safe, and consistent with the project's architecture and Apple platform expectations.
 
-For additional decision-making heuristics and engineering principles, see `Extras/Documentation/AGENT_PRINCIPLES_GLOSSARY.md`.
+For additional decision-making heuristics and engineering principles, see `Extras/Documentation/Principles Glossary.md`.
 
 ## Role & expectations
 
@@ -35,7 +35,7 @@ Act as an expert Swift engineer.
 - SwiftUI views should be backed by testable view models or other non-view logic types.
 - Use `@Observable` for shared state. Do not use `ObservableObject`.
 - Avoid UIKit/AppKit unless explicitly requested.
-- Do not add third-party frameworks without asking first.
+- Only add third-party dependencies that are listed in `Extras/Documentation/Approved Dependencies.md`. Ask first before adding any other dependencies.
 - Write cross-platform code where it does not add complexity.
 
 
@@ -133,7 +133,7 @@ When defining a protocol, the code should be arranged in the following order:
 
 ## General coding guidelines
 
-- Follow the principles in `Extras/Documentation/AGENT_PRINCIPLES_GLOSSARY.md`.
+- Follow the principles in `Extras/Documentation/Principles Glossary.md`.
 - Avoid duplication in code and tests.
 - Minimize repeated literals (strings, numbers).
 - Avoid private single-line var or func wrappers unless the wrapped code is complex or repeated, or the wrapper adds substantial clarity.

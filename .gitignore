@@ -1,0 +1,51 @@
+# Xcode
+
+## User settings
+xcuserdata/
+
+## Build artifacts
+build/
+DerivedData/
+
+## App packaging
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Swift Package Manager
+.build/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Custom folder icons (Icon followed by carriage return \r)
+Icon\r
+
+# Thumbnails
+._*
+
+# Swift
+*.swiftmodule
+
+# Secrets and environment files
+.env
+.env.*
+secrets.json
+credentials.json
+*-secrets.plist
+*-credentials.plist
+
+# IDE
+.idea/
+
+# Backup files
+*~
+*.orig
+*.bak
+*.backup

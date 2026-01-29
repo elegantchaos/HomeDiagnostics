@@ -1,9 +1,34 @@
 import ArgumentParser
 import Foundation
+import Subprocess
+
+#if canImport(System)
+  import System
+#else
+  import SystemPackage
+#endif
+
+struct StandardError: TextOutputStream, Sendable {
+  private static let handle = FileHandle.standardError
+
+  public func write(_ string: String) {
+    Self.handle.write(Data(string.utf8))
+  }
+}
+
+nonisolated(unsafe) private var stderr = StandardError()
+
+/// Print to stderr
+private func printErr(_ message: String) {
+  print(message, to: &stderr)
+}
+
+/// Whether verbose output is enabled
+nonisolated(unsafe) private var isVerbose = false
 
 /// Command-line tool for diagnosing Apple Home and HomeKit issues
 @main
-struct HomeDiagnostics: ParsableCommand {
+struct HomeDiagnostics: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "home-diagnostics",
     abstract: "Collect and analyze Apple Home and HomeKit logs",
@@ -13,51 +38,71 @@ struct HomeDiagnostics: ParsableCommand {
   @Option(name: .shortAndLong, help: "Number of days to look back (default: 14)")
   var days: Int = 14
 
-  @Flag(name: .long, help: "Include debug-level logs (verbose)")
-  var debug: Bool = false
-
-  @Option(name: .shortAndLong, help: "Output file path (default: stdout)")
-  var output: String?
-
   @Flag(name: .long, help: "Filter for Hue-related entries only")
   var hueOnly: Bool = false
 
   @Flag(name: .long, help: "Show summary statistics")
   var summary: Bool = false
 
-  mutating func run() throws {
-    print("HomeDiagnostics - Apple Home Log Analyzer")
-    print("==========================================\n")
+  @Flag(name: .shortAndLong, help: "Enable verbose logging and include debug-level logs")
+  var verbose: Bool = false
 
-    let collector = LogCollector(
-      daysBack: days,
-      includeDebug: debug,
-      hueOnly: hueOnly
-    )
+  mutating func run() async throws {
+    // Configure verbose output and debug log inclusion
+    isVerbose = verbose
 
-    print("Collecting logs from the last \(days) day(s)...")
-    if debug {
-      print("(Including debug-level logs - this may take a while)")
-    }
-    print()
+    do {
+      if isVerbose {
+        printErr("[INFO] Starting HomeDiagnostics - Apple Home Log Analyzer")
+      }
+      printErr("HomeDiagnostics - Apple Home Log Analyzer")
+      printErr("==========================================\n")
 
-    let logs = try collector.collectLogs()
+      let collector = LogCollector(
+        daysBack: days,
+        includeDebug: verbose,
+        hueOnly: hueOnly
+      )
 
-    let analyzer = LogAnalyzer(entries: logs)
-    let analysis = analyzer.analyze()
+      printErr("Collecting logs from the last \(days) day(s)...")
+      if verbose {
+        printErr("(Including debug-level logs - this may take a while)")
+      }
+      printErr("")
 
-    let formatter = OutputFormatter(
-      analysis: analysis,
-      showSummary: summary
-    )
+      if isVerbose {
+        printErr("[DEBUG] Beginning log collection")
+      }
+      let logs = try await collector.collectLogs()
+      if isVerbose {
+        printErr("[INFO] Collected \(logs.count) log entries")
+      }
 
-    let output = formatter.format()
+      if isVerbose {
+        printErr("[DEBUG] Analyzing logs")
+      }
+      let analyzer = LogAnalyzer(entries: logs)
+      let analysis = analyzer.analyze()
 
-    if let outputPath = self.output {
-      try output.write(toFile: outputPath, atomically: true, encoding: .utf8)
-      print("Results written to: \(outputPath)")
-    } else {
-      print(output)
+      if isVerbose {
+        printErr("[DEBUG] Formatting output")
+      }
+      let formatter = OutputFormatter(
+        analysis: analysis,
+        showSummary: summary
+      )
+
+      let outputText = formatter.format()
+
+      print(outputText)
+
+      if isVerbose {
+        printErr("[INFO] HomeDiagnostics completed successfully")
+      }
+    } catch {
+      printErr("[ERROR] Fatal error occurred: \(error)")
+      printErr("\nError: \(error.localizedDescription)")
+      throw error
     }
   }
 }
@@ -74,7 +119,7 @@ struct LogCollector {
   let hueOnly: Bool
 
   /// Collects Home and HomeKit logs
-  func collectLogs() throws -> [LogEntry] {
+  func collectLogs() async throws -> [LogEntry] {
     var allEntries: [LogEntry] = []
 
     // Collect from different subsystems
@@ -85,8 +130,19 @@ struct LogCollector {
     ]
 
     for subsystem in subsystems {
-      let entries = try collectLogsForSubsystem(subsystem)
-      allEntries.append(contentsOf: entries)
+      do {
+        if isVerbose {
+          printErr("[DEBUG] Collecting logs for subsystem: \(subsystem)")
+        }
+        let entries = try await collectLogsForSubsystem(subsystem)
+        if isVerbose {
+          printErr("[DEBUG] Collected \(entries.count) entries from \(subsystem)")
+        }
+        allEntries.append(contentsOf: entries)
+      } catch {
+        printErr("[ERROR] Failed to collect logs for subsystem \(subsystem): \(error)")
+        // Continue with other subsystems even if one fails
+      }
     }
 
     // Sort by timestamp
@@ -96,33 +152,56 @@ struct LogCollector {
   }
 
   /// Collects logs for a specific subsystem
-  private func collectLogsForSubsystem(_ subsystem: String) throws -> [LogEntry] {
+  private func collectLogsForSubsystem(_ subsystem: String) async throws -> [LogEntry] {
     let timeInterval = "\(daysBack)d"
     let levelPredicate = includeDebug ? "--info --debug" : "--info"
 
-    // Build the log command
-    let command = """
-      log show --style syslog --last \(timeInterval) \(levelPredicate) \
-      --predicate 'subsystem == "\(subsystem)"' 2>&1
-      """
+    // Build the log command arguments
+    let arguments =
+      [
+        "show",
+        "--style", "syslog",
+        "--last", timeInterval,
+      ] + levelPredicate.components(separatedBy: " ") + [
+        "--predicate", "subsystem == \"\(subsystem)\"",
+      ]
 
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["sh", "-c", command]
-
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = pipe
-
-    try process.run()
-    process.waitUntilExit()
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let output = String(data: data, encoding: .utf8) else {
-      return []
+    if isVerbose {
+      printErr("[DEBUG] Executing: /usr/bin/log \(arguments.joined(separator: " "))")
     }
 
-    return parseLogOutput(output, subsystem: subsystem)
+    do {
+      // Execute using Subprocess - run is async so we need to use a Task
+      let result = try await Subprocess.run(
+        .path(FilePath("/usr/bin/log")),
+        arguments: Arguments(arguments),
+        output: .string(limit: 100 * 1024 * 1024),  // 100MB limit
+        error: .string(limit: 1024 * 1024)  // 1MB limit for errors
+      )
+
+      // Check exit status
+      if case .exited(let code) = result.terminationStatus, code != 0 {
+        if isVerbose {
+          printErr("[WARN] log command returned non-zero exit code: \(code) for \(subsystem)")
+        }
+        if let errorOutput = result.standardError {
+          if isVerbose {
+            printErr("[WARN] Error output: \(errorOutput)")
+          }
+        }
+      }
+
+      // Read output
+      let output = result.standardOutput ?? ""
+      if isVerbose {
+        printErr("[DEBUG] Received \(output.count) characters from \(subsystem)")
+      }
+
+      return parseLogOutput(output, subsystem: subsystem)
+    } catch {
+      printErr("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
+      throw error
+    }
   }
 
   /// Parses log output into structured entries
@@ -149,6 +228,10 @@ struct LogCollector {
       } else {
         entries.append(entry)
       }
+    }
+
+    if isVerbose {
+      printErr("[DEBUG] Parsed \(entries.count) entries from \(lines.count) lines for \(subsystem)")
     }
 
     return entries
@@ -268,6 +351,12 @@ struct LogAnalyzer {
       .mapValues { $0.count }
 
     let problematicEntries = entries.filter { $0.isProblematic }
+
+    if isVerbose {
+      printErr(
+        "[DEBUG] Analysis complete: \(totalCount) total, \(errorCount) errors, \(faultCount) faults, \(warningCount) warnings"
+      )
+    }
 
     return LogAnalysis(
       totalEntries: totalCount,
