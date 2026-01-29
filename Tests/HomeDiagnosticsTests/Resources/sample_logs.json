@@ -1,0 +1,72 @@
+[
+  {
+    "timestamp": "2026-01-29 14:30:15.123456+0000",
+    "messageType": "Error",
+    "eventMessage": "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Value Transition Control Characteristic value is not of type data: (null)",
+    "subsystem": "com.apple.HomeKit",
+    "processImagePath": "/System/Library/PrivateFrameworks/HomeKit.framework/homed"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:16.234567+0000",
+    "messageType": "Info",
+    "eventMessage": "refresh(homeManager:timeout:) starting refresh",
+    "subsystem": "com.apple.Home",
+    "processImagePath": "/Applications/Home.app/Contents/MacOS/Home"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:17.345678+0000",
+    "messageType": "Info",
+    "eventMessage": "refresh(homeManager:timeout:) finished successfully",
+    "subsystem": "com.apple.Home",
+    "processImagePath": "/Applications/Home.app/Contents/MacOS/Home"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:18.456789+0000",
+    "messageType": "Error",
+    "eventMessage": "Connection timeout to accessory [Living Room Lamp]",
+    "subsystem": "com.apple.HomeKit",
+    "processImagePath": "/System/Library/PrivateFrameworks/HomeKit.framework/homed"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:19.567890+0000",
+    "messageType": "Warning",
+    "eventMessage": "Device [Bedroom Switch] not responding",
+    "subsystem": "com.apple.homed",
+    "processImagePath": "/usr/libexec/homed"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:20.678901+0000",
+    "messageType": "Fault",
+    "eventMessage": "Critical: Database corruption detected in home data",
+    "subsystem": "com.apple.HomeKit",
+    "processImagePath": "/System/Library/PrivateFrameworks/HomeKit.framework/homed"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:21.789012+0000",
+    "messageType": "Debug",
+    "eventMessage": "Polling accessory status for [Kitchen Light]",
+    "subsystem": "com.apple.HomeKit",
+    "processImagePath": "/System/Library/PrivateFrameworks/HomeKit.framework/homed"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:22.890123+0000",
+    "messageType": "Error",
+    "eventMessage": "[Philips Hue Bridge] Authentication failed",
+    "subsystem": "com.apple.HomeKit",
+    "processImagePath": "/System/Library/PrivateFrameworks/HomeKit.framework/homed"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:23.901234+0000",
+    "messageType": "Info",
+    "eventMessage": "Accessory [Office Light] state updated successfully",
+    "subsystem": "com.apple.HomeKit",
+    "processImagePath": "/System/Library/PrivateFrameworks/HomeKit.framework/homed"
+  },
+  {
+    "timestamp": "2026-01-29 14:30:24.012345+0000",
+    "messageType": "Error",
+    "eventMessage": "Failed to connect: device unreachable",
+    "subsystem": "com.apple.homed",
+    "processImagePath": "/usr/libexec/homed"
+  }
+]

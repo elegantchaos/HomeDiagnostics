@@ -4,12 +4,13 @@
     {
       "type": "swift",
       "request": "launch",
-      "name": "Debug HomeDiagnostics - Hue Devices",
+      "name": "Debug HomeDiagnostics - Filtered Devices (Hue)",
       "program": "${workspaceFolder}/.build/debug/home-diagnostics",
       "args": [
         "--days",
         "7",
-        "--hue-only",
+        "--filter",
+        "hue",
         "--verbose",
         "--detailed"
       ],
@@ -46,12 +47,13 @@
     {
       "type": "swift",
       "request": "launch",
-      "name": "Debug HomeDiagnostics - Hue Deduplicated",
+      "name": "Debug HomeDiagnostics - Filtered Deduplicated",
       "program": "${workspaceFolder}/.build/debug/home-diagnostics",
       "args": [
         "--days",
         "7",
-        "--hue-only",
+        "--filter",
+        "hue",
         "--dedupe",
         "--verbose"
       ],
@@ -61,12 +63,13 @@
     {
       "type": "swift",
       "request": "launch",
-      "name": "Debug HomeDiagnostics - Raw Hue Logs",
+      "name": "Debug HomeDiagnostics - Raw Filtered Logs",
       "program": "${workspaceFolder}/.build/debug/home-diagnostics",
       "args": [
         "--days",
         "3",
-        "--hue-only",
+        "--filter",
+        "hue",
         "--raw",
         "--verbose"
       ],
@@ -105,17 +108,54 @@
     {
       "type": "swift",
       "request": "launch",
-      "name": "Debug HomeDiagnostics - Hue Errors Only",
+      "name": "Debug HomeDiagnostics - Filtered Errors (Hue)",
       "program": "${workspaceFolder}/.build/debug/home-diagnostics",
       "args": [
         "--days",
         "7",
-        "--hue-only",
+        "--filter",
+        "hue",
         "--errors-only",
         "--dedupe"
       ],
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "swift-build"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "name": "Debug HomeDiagnostics - Regex Filter (Timeout)",
+      "program": "${workspaceFolder}/.build/debug/home-diagnostics",
+      "args": [
+        "--days",
+        "7",
+        "--filter",
+        "timeout|unreachable",
+        "--errors-only",
+        "--dedupe"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "swift-build"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:HomeDiagnostics}",
+      "name": "Debug home-diagnostics",
+      "target": "home-diagnostics",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug home-diagnostics"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:HomeDiagnostics}",
+      "name": "Release home-diagnostics",
+      "target": "home-diagnostics",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release home-diagnostics"
     }
   ]
 }

@@ -71,8 +71,8 @@ struct HomeDiagnostics: AsyncParsableCommand {
   @Option(name: .long, help: "Number of hours to look back")
   var hours: Int?
 
-  @Flag(name: .long, help: "Filter for Hue-related entries only")
-  var hueOnly: Bool = false
+  @Option(name: .shortAndLong, help: "Filter log messages (plain text or regex pattern)")
+  var filter: String?
 
   @Flag(name: .long, help: "Show summary statistics")
   var summary: Bool = false
@@ -127,7 +127,7 @@ struct HomeDiagnostics: AsyncParsableCommand {
 
     do {
       info("Starting HomeDiagnostics - Apple Home Log Analyzer")
-      
+
       if !raw {
         printErr("HomeDiagnostics - Apple Home Log Analyzer")
         printErr("==========================================\n")
@@ -136,7 +136,7 @@ struct HomeDiagnostics: AsyncParsableCommand {
       let collector = LogCollector(
         timeInterval: timeInterval,
         includeDebug: detailed,
-        hueOnly: hueOnly,
+        filter: filter,
         errorsOnly: errorsOnly
       )
 
@@ -144,6 +144,9 @@ struct HomeDiagnostics: AsyncParsableCommand {
         printErr("Collecting logs from the last \(timeDescription)...")
         if detailed {
           printErr("(Including debug-level logs - this may take a while)")
+        }
+        if let filter = filter {
+          printErr("(Filtering for: \"\(filter)\")")
         }
         if errorsOnly {
           printErr("(Filtering for errors, faults, and warnings only)")
@@ -190,6 +193,52 @@ struct HomeDiagnostics: AsyncParsableCommand {
   }
 }
 
+/// Protocol for abstracting log data sources (for testing purposes only)
+protocol LogDataSource {
+  /// Fetches raw JSON log data for a subsystem
+  func fetchJSONLogs(subsystem: String) async throws -> String
+}
+
+/// Production log data source that uses macOS unified logging system (for testing purposes only)
+struct SystemLogDataSource: LogDataSource {
+  /// Time interval to look back
+  let timeInterval: String
+  /// Whether to include debug-level logs
+  let includeDebug: Bool
+  
+  /// Fetches raw JSON log data for a subsystem
+  func fetchJSONLogs(subsystem: String) async throws -> String {
+    let levelPredicate = includeDebug ? "--info --debug" : "--info"
+    
+    let arguments =
+      [
+        "show",
+        "--style", "json",
+        "--last", timeInterval,
+      ] + levelPredicate.components(separatedBy: " ") + [
+        "--predicate", "subsystem == \"\(subsystem)\"",
+      ]
+    
+    debug("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
+    
+    let result = try await Subprocess.run(
+      .path(FilePath("/usr/bin/log")),
+      arguments: Arguments(arguments),
+      output: .string(limit: 100 * 1024 * 1024),
+      error: .string(limit: 1024 * 1024)
+    )
+    
+    if case .exited(let code) = result.terminationStatus, code != 0 {
+      debug("log command returned non-zero exit code: \(code) for \(subsystem)")
+      if let errorOutput = result.standardError {
+        debug("Error output: \(errorOutput)")
+      }
+    }
+    
+    return result.standardOutput ?? ""
+  }
+}
+
 /// Collects logs from the macOS unified logging system
 struct LogCollector {
   /// Time interval to look back (e.g., "14d", "6h")
@@ -198,11 +247,29 @@ struct LogCollector {
   /// Whether to include debug-level logs
   let includeDebug: Bool
 
-  /// Whether to filter for Hue-related entries only
-  let hueOnly: Bool
+  /// Optional filter pattern (plain text or regex)
+  let filter: String?
 
   /// Whether to filter for errors, faults, and warnings only
   let errorsOnly: Bool
+  
+  /// Log data source (for testing purposes only)
+  let dataSource: LogDataSource?
+  
+  /// Creates a new LogCollector
+  init(
+    timeInterval: String,
+    includeDebug: Bool,
+    filter: String? = nil,
+    errorsOnly: Bool = false,
+    dataSource: LogDataSource? = nil
+  ) {
+    self.timeInterval = timeInterval
+    self.includeDebug = includeDebug
+    self.filter = filter
+    self.errorsOnly = errorsOnly
+    self.dataSource = dataSource
+  }
 
   /// Collects Home and HomeKit logs
   func collectLogs() async throws -> [LogEntry] {
@@ -249,7 +316,7 @@ struct LogCollector {
         debug("Collecting raw logs for subsystem: \(subsystem)")
         let output = try await collectRawLogsForSubsystem(subsystem)
         debug("Collected \(output.count) characters from \(subsystem)")
-        
+
         if !output.isEmpty {
           allOutput.append(output)
         }
@@ -295,16 +362,13 @@ struct LogCollector {
         }
       }
 
-      // Read output and filter for Hue if requested
+      // Read output and filter if requested
       var output = result.standardOutput ?? ""
-      
-      if hueOnly {
+
+      if let filter = filter {
         let lines = output.components(separatedBy: .newlines)
         let filteredLines = lines.filter { line in
-          let lowercased = line.lowercased()
-          return lowercased.contains("hue")
-            || lowercased.contains("philips")
-            || lowercased.contains("bridge")
+          matchesFilter(line, pattern: filter)
         }
         output = filteredLines.joined(separator: "\n")
       }
@@ -318,50 +382,56 @@ struct LogCollector {
 
   /// Collects logs for a specific subsystem
   private func collectLogsForSubsystem(_ subsystem: String) async throws -> [LogEntry] {
-    let levelPredicate = includeDebug ? "--info --debug" : "--info"
+    // Use injected data source if provided (for testing), otherwise use system logs
+    let output: String
+    if let dataSource = dataSource {
+      output = try await dataSource.fetchJSONLogs(subsystem: subsystem)
+    } else {
+      let levelPredicate = includeDebug ? "--info --debug" : "--info"
 
-    // Build the log command arguments - use JSON for accurate metadata
-    let arguments =
-      [
-        "show",
-        "--style", "json",
-        "--last", timeInterval,
-      ] + levelPredicate.components(separatedBy: " ") + [
-        "--predicate", "subsystem == \"\(subsystem)\"",
-      ]
+      // Build the log command arguments - use JSON for accurate metadata
+      let arguments =
+        [
+          "show",
+          "--style", "json",
+          "--last", timeInterval,
+        ] + levelPredicate.components(separatedBy: " ") + [
+          "--predicate", "subsystem == \"\(subsystem)\"",
+        ]
 
-    debug("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
+      debug("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
 
-    do {
-      // Execute using Subprocess
-      let result = try await Subprocess.run(
-        .path(FilePath("/usr/bin/log")),
-        arguments: Arguments(arguments),
-        output: .string(limit: 100 * 1024 * 1024),  // 100MB limit
-        error: .string(limit: 1024 * 1024)  // 1MB limit for errors
-      )
+      do {
+        // Execute using Subprocess
+        let result = try await Subprocess.run(
+          .path(FilePath("/usr/bin/log")),
+          arguments: Arguments(arguments),
+          output: .string(limit: 100 * 1024 * 1024),  // 100MB limit
+          error: .string(limit: 1024 * 1024)  // 1MB limit for errors
+        )
 
-      // Check exit status
-      if case .exited(let code) = result.terminationStatus, code != 0 {
-        debug("log command returned non-zero exit code: \(code) for \(subsystem)")
-        if let errorOutput = result.standardError {
-          debug("Error output: \(errorOutput)")
+        // Check exit status
+        if case .exited(let code) = result.terminationStatus, code != 0 {
+          debug("log command returned non-zero exit code: \(code) for \(subsystem)")
+          if let errorOutput = result.standardError {
+            debug("Error output: \(errorOutput)")
+          }
         }
+
+        // Read output
+        output = result.standardOutput ?? ""
+        debug("Received \(output.count) characters from \(subsystem)")
+      } catch {
+        printErr("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
+        throw error
       }
-
-      // Read output
-      let output = result.standardOutput ?? ""
-      debug("Received \(output.count) characters from \(subsystem)")
-
-      return parseJSONLogOutput(output, subsystem: subsystem)
-    } catch {
-      printErr("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
-      throw error
     }
+
+    return parseJSONLogOutput(output, subsystem: subsystem)
   }
 
-  /// Parses JSON log output into structured entries
-  private func parseJSONLogOutput(_ output: String, subsystem: String) -> [LogEntry] {
+  /// Parses JSON log output into structured entries (for testing purposes only)
+  func parseJSONLogOutput(_ output: String, subsystem: String) -> [LogEntry] {
     guard let data = output.data(using: .utf8) else {
       debug("Failed to convert output to UTF-8 data")
       return []
@@ -411,6 +481,8 @@ struct LogCollector {
           level = .error
         case "Fault":
           level = .fault
+        case "Warning":
+          level = .warning
         default:
           level = .info
         }
@@ -431,9 +503,9 @@ struct LogCollector {
           shouldInclude = shouldInclude && (level == .error || level == .fault || level == .warning)
         }
 
-        // Filter for Hue if requested
-        if hueOnly {
-          shouldInclude = shouldInclude && entry.containsHueReference
+        // Apply filter if provided
+        if let filter = filter {
+          shouldInclude = shouldInclude && matchesFilter(entry.message, pattern: filter)
         }
 
         if shouldInclude {
@@ -447,6 +519,18 @@ struct LogCollector {
     }
 
     return entries
+  }
+
+  /// Checks if a string matches the filter pattern (plain text or regex) (for testing purposes only)
+  func matchesFilter(_ text: String, pattern: String) -> Bool {
+    // Try as regex first
+    if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+      let range = NSRange(text.startIndex..., in: text)
+      return regex.firstMatch(in: text, range: range) != nil
+    }
+
+    // Fall back to plain text search (case-insensitive)
+    return text.localizedStandardContains(pattern)
   }
 }
 
@@ -467,14 +551,6 @@ struct LogEntry {
   /// The log message
   let message: String
 
-  /// Whether this entry contains a reference to Hue devices
-  var containsHueReference: Bool {
-    let lowercased = message.lowercased()
-    return lowercased.contains("hue")
-      || lowercased.contains("philips")
-      || lowercased.contains("bridge")
-  }
-
   /// Whether this entry indicates an error or problem
   var isProblematic: Bool {
     level == .error || level == .fault
@@ -489,7 +565,8 @@ struct LogEntry {
     var normalized = message
 
     // Remove UUIDs (8-4-4-4-12 format)
-    let uuidPattern = #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#
+    let uuidPattern =
+      #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#
     if let regex = try? NSRegularExpression(pattern: uuidPattern) {
       let range = NSRange(normalized.startIndex..., in: normalized)
       normalized = regex.stringByReplacingMatches(
@@ -561,7 +638,6 @@ struct LogAnalyzer {
     let faultCount = entries.filter { $0.level == .fault }.count
     let warningCount = entries.filter { $0.level == .warning }.count
 
-    let hueRelatedCount = entries.filter { $0.containsHueReference }.count
     let problematicCount = entries.filter { $0.isProblematic }.count
 
     let subsystemCounts = Dictionary(grouping: entries) { $0.subsystem }
@@ -578,7 +654,6 @@ struct LogAnalyzer {
       errorCount: errorCount,
       faultCount: faultCount,
       warningCount: warningCount,
-      hueRelatedCount: hueRelatedCount,
       problematicCount: problematicCount,
       subsystemCounts: subsystemCounts,
       problematicEntries: problematicEntries,
@@ -600,9 +675,6 @@ struct LogAnalysis {
 
   /// Number of warning-level entries
   let warningCount: Int
-
-  /// Number of Hue-related entries
-  let hueRelatedCount: Int
 
   /// Number of potentially problematic entries
   let problematicCount: Int
@@ -677,7 +749,6 @@ struct OutputFormatter {
     summary += "Errors: \(analysis.errorCount)\n"
     summary += "Faults: \(analysis.faultCount)\n"
     summary += "Warnings: \(analysis.warningCount)\n"
-    summary += "Hue-related: \(analysis.hueRelatedCount)\n"
     summary += "Potentially problematic: \(analysis.problematicCount)\n"
 
     if deduplicate {
@@ -727,6 +798,47 @@ struct OutputFormatter {
     }
   }
 
+  /// Formats subsystem by removing "com.apple." prefix
+  private func formatSubsystem(_ subsystem: String) -> String {
+    if subsystem.hasPrefix("com.apple.") {
+      return String(subsystem.dropFirst("com.apple.".count))
+    }
+    return subsystem
+  }
+
+  /// Formats metadata line for a log entry (deduplicated version)
+  private func formatMetadataLineGrouped(_ group: GroupedLogEntry) -> String {
+    var line = "\(TerminalColor.gray)[\(group.count)x] "
+    line += "[\(formatCompactDate(group.firstSeen))"
+    if group.count > 1 {
+      line += " - \(formatCompactDate(group.lastSeen))"
+    }
+    line += "]"
+    
+    // Only show level if not Info
+    if group.example.level != .info {
+      line += " [\(group.example.level.rawValue)]"
+    }
+    
+    line += " [\(formatSubsystem(group.example.subsystem))]"
+    line += "\(TerminalColor.reset)"
+    return line
+  }
+
+  /// Formats metadata line for a single log entry
+  private func formatMetadataLineEntry(_ entry: LogEntry) -> String {
+    var line = "\(TerminalColor.gray)[\(formatCompactDate(entry.timestamp))]"
+    
+    // Only show level if not Info
+    if entry.level != .info {
+      line += " [\(entry.level.rawValue)]"
+    }
+    
+    line += " [\(formatSubsystem(entry.subsystem))]"
+    line += "\(TerminalColor.reset)"
+    return line
+  }
+
   /// Formats the problematic entries section
   private func formatProblematicEntries() -> String {
     var output = "PROBLEMATIC ENTRIES\n"
@@ -734,23 +846,16 @@ struct OutputFormatter {
 
     if deduplicate {
       let grouped = groupEntries(analysis.problematicEntries)
-      output += "Showing \(grouped.count) unique problematic entry types (out of \(analysis.problematicCount) total)\n\n"
+      output +=
+        "Showing \(grouped.count) unique problematic entry types (out of \(analysis.problematicCount) total)\n\n"
 
       for group in grouped {
         let color = colorForLevel(group.example.level)
         
-        // Metadata in gray/dim
-        output += "\(TerminalColor.gray)"
-        output += "[\(group.count)x] "
-        output += "[\(formatCompactDate(group.firstSeen))"
-        if group.count > 1 {
-          output += " - \(formatCompactDate(group.lastSeen))"
-        }
-        output += "] "
-        output += "[\(group.example.level.rawValue)] "
-        output += "[\(group.example.subsystem)]"
-        output += "\(TerminalColor.reset)\n"
-        
+        // Metadata line
+        output += formatMetadataLineGrouped(group)
+        output += "\n"
+
         // Message in bold color
         output += "\(color)\(TerminalColor.bold)\(group.example.message)\(TerminalColor.reset)\n\n"
       }
@@ -758,13 +863,10 @@ struct OutputFormatter {
       for entry in analysis.problematicEntries {
         let color = colorForLevel(entry.level)
         
-        // Metadata in gray/dim
-        output += "\(TerminalColor.gray)"
-        output += "[\(formatCompactDate(entry.timestamp))] "
-        output += "[\(entry.level.rawValue)] "
-        output += "[\(entry.subsystem)]"
-        output += "\(TerminalColor.reset)\n"
-        
+        // Metadata line
+        output += formatMetadataLineEntry(entry)
+        output += "\n"
+
         // Message in bold color
         output += "\(color)\(TerminalColor.bold)\(entry.message)\(TerminalColor.reset)\n\n"
       }
@@ -780,26 +882,20 @@ struct OutputFormatter {
 
     if deduplicate {
       let grouped = groupEntries(analysis.allEntries)
-      output += "Showing \(grouped.count) unique entry types (out of \(analysis.totalEntries) total)\n\n"
+      output +=
+        "Showing \(grouped.count) unique entry types (out of \(analysis.totalEntries) total)\n\n"
 
       for group in grouped {
         let color = colorForLevel(group.example.level)
-        
-        // Metadata in gray/dim
-        output += "\(TerminalColor.gray)"
-        output += "[\(group.count)x] "
-        output += "[\(formatCompactDate(group.firstSeen))"
-        if group.count > 1 {
-          output += " - \(formatCompactDate(group.lastSeen))"
-        }
-        output += "] "
-        output += "[\(group.example.level.rawValue)] "
-        output += "[\(group.example.subsystem)]"
-        output += "\(TerminalColor.reset)\n"
-        
+
+        // Metadata line
+        output += formatMetadataLineGrouped(group)
+        output += "\n"
+
         // Message with color if error/warning
         if !color.isEmpty {
-          output += "\(color)\(TerminalColor.bold)\(group.example.message)\(TerminalColor.reset)\n\n"
+          output +=
+            "\(color)\(TerminalColor.bold)\(group.example.message)\(TerminalColor.reset)\n\n"
         } else {
           output += "\(group.example.message)\n\n"
         }
@@ -807,14 +903,11 @@ struct OutputFormatter {
     } else {
       for entry in analysis.allEntries {
         let color = colorForLevel(entry.level)
-        
-        // Metadata in gray/dim
-        output += "\(TerminalColor.gray)"
-        output += "[\(formatCompactDate(entry.timestamp))] "
-        output += "[\(entry.level.rawValue)] "
-        output += "[\(entry.subsystem)]"
-        output += "\(TerminalColor.reset)\n"
-        
+
+        // Metadata line
+        output += formatMetadataLineEntry(entry)
+        output += "\n"
+
         // Message with color if error/warning
         if !color.isEmpty {
           output += "\(color)\(TerminalColor.bold)\(entry.message)\(TerminalColor.reset)\n\n"

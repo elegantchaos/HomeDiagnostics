@@ -9,13 +9,14 @@ HomeDiagnostics queries the macOS unified logging system to extract, parse, and 
 - `com.apple.HomeKit`
 - `com.apple.homed`
 
-The tool is particularly useful for diagnosing issues with smart home devices that become non-responsive, with built-in filtering for Philips Hue devices.
+The tool is useful for diagnosing issues with smart home devices that become non-responsive, with flexible filtering to focus on specific devices, manufacturers, or patterns.
 
 ## Features
 
 - **Accurate Log Collection**: Uses JSON format for precise log level detection (no false positives)
 - **Flexible Time Windows**: Query by days or hours
-- **Smart Filtering**: Filter by device type (Hue) or severity (errors only)
+- **Pattern Filtering**: Filter log messages using plain text or regular expressions
+- **Severity Filtering**: Show only errors, faults, and warnings
 - **Deduplication**: Group identical log entries and show occurrence counts
 - **Multiple Output Modes**: Analyzed, raw, summary, or deduplicated views
 - **Color Output**: Visual hierarchy with errors in red, warnings in yellow, metadata dimmed
@@ -68,14 +69,22 @@ home-diagnostics --hours 6
 ### Filtering Options
 
 ```bash
-# Show only Hue-related entries
-home-diagnostics --hue-only
+# Filter by plain text (case-insensitive)
+home-diagnostics --filter "hue"
+home-diagnostics --filter "timeout"
+home-diagnostics --filter "bridge"
 
-# Show only errors, faults, and warnings (filter out info/debug)
+# Filter using regular expressions
+home-diagnostics --filter "hue|philips|bridge"
+home-diagnostics --filter "timeout.*accessory"
+home-diagnostics --filter "^Error.*HomeKit"
+
+# Show only errors, faults, and warnings
 home-diagnostics --errors-only
 
-# Combine filters: Hue errors from last 24 hours
-home-diagnostics --hours 24 --hue-only --errors-only
+# Combine filters: device-specific errors from last 24 hours
+home-diagnostics --hours 24 --filter "hue" --errors-only
+home-diagnostics --hours 24 --filter "nanoleaf" --errors-only
 ```
 
 ### Output Modes
@@ -97,8 +106,11 @@ home-diagnostics --verbose
 ### Advanced Examples
 
 ```bash
-# Diagnose Hue issues: show unique error types from last week
-home-diagnostics --days 7 --hue-only --errors-only --dedupe
+# Diagnose Philips Hue issues: show unique error types from last week
+home-diagnostics --days 7 --filter "hue|philips|bridge" --errors-only --dedupe
+
+# Find timeout issues across all devices
+home-diagnostics --days 7 --filter "timeout" --errors-only --dedupe
 
 # Quick check for recent problems
 home-diagnostics --hours 2 --errors-only --summary
@@ -106,11 +118,17 @@ home-diagnostics --hours 2 --errors-only --summary
 # Export raw logs for external processing
 home-diagnostics --days 30 --raw > home-logs.txt
 
+# Find logs matching a specific device name
+home-diagnostics --days 7 --filter "Living Room" --dedupe
+
 # Comprehensive analysis with debug logs (slower)
 home-diagnostics --days 1 --detailed --dedupe
 
 # Monitor recent activity verbosely
 home-diagnostics --hours 1 --verbose --detailed
+
+# Find connection issues with regex
+home-diagnostics --days 7 --filter "connect.*fail|unreachable|timeout" --errors-only
 ```
 
 ## Command-Line Options
@@ -128,8 +146,13 @@ home-diagnostics --hours 1 --verbose --detailed
 
 | Option | Description |
 |--------|-------------|
-| `--hue-only` | Filter for Hue/Philips/Bridge related entries only |
+| `--filter <pattern>`, `-f <pattern>` | Filter log messages (plain text or regex) |
 | `--errors-only` | Show only errors, faults, and warnings (filter out info/debug) |
+
+**Filter pattern behavior:**
+- Attempts regex first (e.g., `"hue|philips"`, `"timeout.*accessory"`)
+- Falls back to case-insensitive plain text search if regex is invalid
+- Applied to the log message content
 
 ### Output Options
 
@@ -155,14 +178,14 @@ home-diagnostics --hours 1 --verbose --detailed
 Most flags can be combined freely:
 
 ```bash
-# ✓ Filter Hue errors and deduplicate
-home-diagnostics --hue-only --errors-only --dedupe
+# ✓ Filter device errors and deduplicate
+home-diagnostics --filter "hue" --errors-only --dedupe
 
 # ✓ Show summary with verbose diagnostics
 home-diagnostics --summary --verbose
 
-# ✓ Detailed logs with deduplication
-home-diagnostics --detailed --dedupe --hue-only
+# ✓ Detailed logs with deduplication and filtering
+home-diagnostics --detailed --dedupe --filter "timeout"
 ```
 
 ### Invalid Combinations
@@ -191,7 +214,6 @@ Total log entries: 843
 Errors: 3
 Faults: 0
 Warnings: 0
-Hue-related: 843
 Potentially problematic: 3
 Unique entry types: 41
 
@@ -269,14 +291,33 @@ The tool identifies entries as "problematic" if they:
 
 ## Use Cases
 
-### Diagnosing Non-Responsive Hue Devices
+### Diagnosing Non-Responsive Devices
 
 ```bash
-# Find recent Hue errors
-home-diagnostics --days 7 --hue-only --errors-only --dedupe
+# Philips Hue devices
+home-diagnostics --days 7 --filter "hue|philips|bridge" --errors-only --dedupe
+
+# Nanoleaf devices
+home-diagnostics --days 7 --filter "nanoleaf" --errors-only --dedupe
+
+# Any device by name
+home-diagnostics --days 7 --filter "Living Room Lamp" --errors-only
 
 # Check if issues are ongoing
-home-diagnostics --hours 2 --hue-only --errors-only
+home-diagnostics --hours 2 --filter "hue" --errors-only
+```
+
+### Finding Specific Problems
+
+```bash
+# Timeout issues
+home-diagnostics --days 7 --filter "timeout" --errors-only --dedupe
+
+# Connection failures
+home-diagnostics --days 7 --filter "connect.*fail|unreachable" --errors-only
+
+# Authentication problems
+home-diagnostics --days 7 --filter "auth.*fail|pairing.*fail" --errors-only
 ```
 
 ### Monitoring Home Stability
@@ -298,6 +339,9 @@ home-diagnostics --days 14 --raw > home-logs.txt
 # Export only errors
 home-diagnostics --days 14 --errors-only --raw > errors.txt
 
+# Filter and export for specific device
+home-diagnostics --days 7 --filter "hue" --raw > hue-logs.txt
+
 # Process with grep, awk, etc.
 home-diagnostics --days 7 --raw | grep -i "bridge"
 ```
@@ -312,6 +356,62 @@ home-diagnostics --days 7 --detailed > support-logs.txt
 home-diagnostics --days 7 --summary > support-summary.txt
 ```
 
+## Common Filter Examples
+
+### By Device Manufacturer
+
+```bash
+# Philips Hue
+home-diagnostics --filter "hue|philips|bridge"
+
+# Nanoleaf
+home-diagnostics --filter "nanoleaf"
+
+# Eve/Elgato
+home-diagnostics --filter "eve|elgato"
+
+# Aqara
+home-diagnostics --filter "aqara"
+
+# LIFX
+home-diagnostics --filter "lifx"
+
+# Lutron
+home-diagnostics --filter "lutron|caseta"
+```
+
+### By Problem Type
+
+```bash
+# Timeouts
+home-diagnostics --filter "timeout"
+
+# Connection issues
+home-diagnostics --filter "connect.*fail|unreachable|not.responding"
+
+# Authentication
+home-diagnostics --filter "auth|pairing|credential"
+
+# Null values
+home-diagnostics --filter "null|nil"
+
+# Database issues
+home-diagnostics --filter "database|corruption"
+```
+
+### By Room or Accessory Name
+
+```bash
+# Specific room
+home-diagnostics --filter "Living Room|Bedroom"
+
+# Specific accessory
+home-diagnostics --filter "Front Door Lock"
+
+# Device type
+home-diagnostics --filter "lamp|light|switch|sensor"
+```
+
 ## Common Issues
 
 ### No Logs Collected
@@ -321,6 +421,7 @@ If you see 0 entries:
 - Try increasing the time window (`--days 30`)
 - Try adding `--detailed` to include debug logs
 - Check if Home app is active and syncing
+- Remove `--filter` temporarily to check if filter is too restrictive
 
 ### Permission Issues
 
@@ -359,6 +460,7 @@ For large time windows:
 - **JSON parsing**: Uses `--style json` for accurate log level detection
 - **Zero false positives**: Switched from text matching to metadata-based parsing
 - **Stream separation**: Analysis output to stdout, diagnostics to stderr
+- **Flexible filtering**: Supports both plain text and regex patterns
 
 ## Common Issues to Look For
 
@@ -368,25 +470,9 @@ When reviewing the output, look for:
 2. **Connection failures** - Unable to reach device or bridge
 3. **Authentication errors** - Issues with device credentials
 4. **Network errors** - Problems communicating over the network
-5. **Hue bridge issues** - Specific references to the Philips Hue bridge being unreachable
+5. **Bridge issues** - Hub devices (Hue, Lutron, etc.) being unreachable
 6. **Null values** - HomeKit characteristics returning null/invalid values
-
-## Tips for Hue Issues
-
-If you're experiencing Hue device problems:
-
-1. Run: `home-diagnostics --days 14 --hue-only --errors-only --dedupe`
-2. Look for entries mentioning:
-   - "bridge" - Your Hue bridge connection
-   - "timeout" - Devices not responding
-   - "unreachable" - Network connectivity issues
-   - "null" - Invalid characteristic values
-3. Common fixes:
-   - Restart the Hue bridge
-   - Check your network connectivity
-   - Remove and re-add problematic accessories in the Home app
-   - Update Hue bridge firmware
-   - Check for HomeKit integration errors
+7. **Pairing failures** - Devices unable to establish connection
 
 ## Contributing
 
@@ -403,4 +489,4 @@ This tool is provided as-is for personal diagnostic use.
 
 ## Acknowledgments
 
-Built to diagnose persistent issues with Philips Hue devices becoming non-responsive in Apple Home.
+Built to help diagnose issues with smart home devices in Apple Home.
