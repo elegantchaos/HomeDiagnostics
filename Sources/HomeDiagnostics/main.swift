@@ -23,6 +23,20 @@ private func printErr(_ message: String) {
   print(message, to: &stderr)
 }
 
+/// Print debug message to stderr (only when verbose is enabled)
+private func debug(_ message: String) {
+  if isVerbose {
+    printErr("[DEBUG] \(message)")
+  }
+}
+
+/// Print info message to stderr (only when verbose is enabled)
+private func info(_ message: String) {
+  if isVerbose {
+    printErr("[INFO] \(message)")
+  }
+}
+
 /// Whether verbose output is enabled
 nonisolated(unsafe) private var isVerbose = false
 
@@ -52,9 +66,7 @@ struct HomeDiagnostics: AsyncParsableCommand {
     isVerbose = verbose
 
     do {
-      if isVerbose {
-        printErr("[INFO] Starting HomeDiagnostics - Apple Home Log Analyzer")
-      }
+      info("Starting HomeDiagnostics - Apple Home Log Analyzer")
       printErr("HomeDiagnostics - Apple Home Log Analyzer")
       printErr("==========================================\n")
 
@@ -70,23 +82,15 @@ struct HomeDiagnostics: AsyncParsableCommand {
       }
       printErr("")
 
-      if isVerbose {
-        printErr("[DEBUG] Beginning log collection")
-      }
+      debug("Beginning log collection")
       let logs = try await collector.collectLogs()
-      if isVerbose {
-        printErr("[INFO] Collected \(logs.count) log entries")
-      }
+      info("Collected \(logs.count) log entries")
 
-      if isVerbose {
-        printErr("[DEBUG] Analyzing logs")
-      }
+      debug("Analyzing logs")
       let analyzer = LogAnalyzer(entries: logs)
       let analysis = analyzer.analyze()
 
-      if isVerbose {
-        printErr("[DEBUG] Formatting output")
-      }
+      debug("Formatting output")
       let formatter = OutputFormatter(
         analysis: analysis,
         showSummary: summary
@@ -96,9 +100,7 @@ struct HomeDiagnostics: AsyncParsableCommand {
 
       print(outputText)
 
-      if isVerbose {
-        printErr("[INFO] HomeDiagnostics completed successfully")
-      }
+      info("HomeDiagnostics completed successfully")
     } catch {
       printErr("[ERROR] Fatal error occurred: \(error)")
       printErr("\nError: \(error.localizedDescription)")
@@ -131,13 +133,9 @@ struct LogCollector {
 
     for subsystem in subsystems {
       do {
-        if isVerbose {
-          printErr("[DEBUG] Collecting logs for subsystem: \(subsystem)")
-        }
+        debug("Collecting logs for subsystem: \(subsystem)")
         let entries = try await collectLogsForSubsystem(subsystem)
-        if isVerbose {
-          printErr("[DEBUG] Collected \(entries.count) entries from \(subsystem)")
-        }
+        debug("Collected \(entries.count) entries from \(subsystem)")
         allEntries.append(contentsOf: entries)
       } catch {
         printErr("[ERROR] Failed to collect logs for subsystem \(subsystem): \(error)")
@@ -166,9 +164,7 @@ struct LogCollector {
         "--predicate", "subsystem == \"\(subsystem)\"",
       ]
 
-    if isVerbose {
-      printErr("[DEBUG] Executing: /usr/bin/log \(arguments.joined(separator: " "))")
-    }
+    debug("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
 
     do {
       // Execute using Subprocess - run is async so we need to use a Task
@@ -181,21 +177,15 @@ struct LogCollector {
 
       // Check exit status
       if case .exited(let code) = result.terminationStatus, code != 0 {
-        if isVerbose {
-          printErr("[WARN] log command returned non-zero exit code: \(code) for \(subsystem)")
-        }
+        debug("log command returned non-zero exit code: \(code) for \(subsystem)")
         if let errorOutput = result.standardError {
-          if isVerbose {
-            printErr("[WARN] Error output: \(errorOutput)")
-          }
+          debug("Error output: \(errorOutput)")
         }
       }
 
       // Read output
       let output = result.standardOutput ?? ""
-      if isVerbose {
-        printErr("[DEBUG] Received \(output.count) characters from \(subsystem)")
-      }
+      debug("Received \(output.count) characters from \(subsystem)")
 
       return parseLogOutput(output, subsystem: subsystem)
     } catch {
@@ -230,9 +220,7 @@ struct LogCollector {
       }
     }
 
-    if isVerbose {
-      printErr("[DEBUG] Parsed \(entries.count) entries from \(lines.count) lines for \(subsystem)")
-    }
+    debug("Parsed \(entries.count) entries from \(lines.count) lines for \(subsystem)")
 
     return entries
   }
@@ -352,11 +340,9 @@ struct LogAnalyzer {
 
     let problematicEntries = entries.filter { $0.isProblematic }
 
-    if isVerbose {
-      printErr(
-        "[DEBUG] Analysis complete: \(totalCount) total, \(errorCount) errors, \(faultCount) faults, \(warningCount) warnings"
-      )
-    }
+    debug(
+      "Analysis complete: \(totalCount) total, \(errorCount) errors, \(faultCount) faults, \(warningCount) warnings"
+    )
 
     return LogAnalysis(
       totalEntries: totalCount,
