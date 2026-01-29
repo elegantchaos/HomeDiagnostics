@@ -50,7 +50,10 @@ struct HomeDiagnostics: AsyncParsableCommand {
   )
 
   @Option(name: .shortAndLong, help: "Number of days to look back (default: 14)")
-  var days: Int = 14
+  var days: Int?
+
+  @Option(name: .long, help: "Number of hours to look back")
+  var hours: Int?
 
   @Flag(name: .long, help: "Filter for Hue-related entries only")
   var hueOnly: Bool = false
@@ -80,6 +83,24 @@ struct HomeDiagnostics: AsyncParsableCommand {
       throw ExitCode.validationFailure
     }
 
+    if days != nil && hours != nil {
+      printErr("[ERROR] Cannot specify both --days and --hours")
+      throw ExitCode.validationFailure
+    }
+
+    // Determine time interval
+    let timeInterval: String
+    let timeDescription: String
+
+    if let hours = hours {
+      timeInterval = "\(hours)h"
+      timeDescription = "\(hours) hour(s)"
+    } else {
+      let daysValue = days ?? 14
+      timeInterval = "\(daysValue)d"
+      timeDescription = "\(daysValue) day(s)"
+    }
+
     do {
       info("Starting HomeDiagnostics - Apple Home Log Analyzer")
       
@@ -89,13 +110,13 @@ struct HomeDiagnostics: AsyncParsableCommand {
       }
 
       let collector = LogCollector(
-        daysBack: days,
+        timeInterval: timeInterval,
         includeDebug: detailed,
         hueOnly: hueOnly
       )
 
       if !raw {
-        printErr("Collecting logs from the last \(days) day(s)...")
+        printErr("Collecting logs from the last \(timeDescription)...")
         if detailed {
           printErr("(Including debug-level logs - this may take a while)")
         }
@@ -142,8 +163,8 @@ struct HomeDiagnostics: AsyncParsableCommand {
 
 /// Collects logs from the macOS unified logging system
 struct LogCollector {
-  /// Number of days to look back
-  let daysBack: Int
+  /// Time interval to look back (e.g., "14d", "6h")
+  let timeInterval: String
 
   /// Whether to include debug-level logs
   let includeDebug: Bool
@@ -211,7 +232,6 @@ struct LogCollector {
 
   /// Collects raw logs for a specific subsystem without parsing
   private func collectRawLogsForSubsystem(_ subsystem: String) async throws -> String {
-    let timeInterval = "\(daysBack)d"
     let levelPredicate = includeDebug ? "--info --debug" : "--info"
 
     // Build the log command arguments
@@ -266,14 +286,13 @@ struct LogCollector {
 
   /// Collects logs for a specific subsystem
   private func collectLogsForSubsystem(_ subsystem: String) async throws -> [LogEntry] {
-    let timeInterval = "\(daysBack)d"
     let levelPredicate = includeDebug ? "--info --debug" : "--info"
 
-    // Build the log command arguments
+    // Build the log command arguments - use JSON for accurate metadata
     let arguments =
       [
         "show",
-        "--style", "syslog",
+        "--style", "json",
         "--last", timeInterval,
       ] + levelPredicate.components(separatedBy: " ") + [
         "--predicate", "subsystem == \"\(subsystem)\"",
@@ -282,7 +301,7 @@ struct LogCollector {
     debug("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
 
     do {
-      // Execute using Subprocess - run is async so we need to use a Task
+      // Execute using Subprocess
       let result = try await Subprocess.run(
         .path(FilePath("/usr/bin/log")),
         arguments: Arguments(arguments),
@@ -302,82 +321,92 @@ struct LogCollector {
       let output = result.standardOutput ?? ""
       debug("Received \(output.count) characters from \(subsystem)")
 
-      return parseLogOutput(output, subsystem: subsystem)
+      return parseJSONLogOutput(output, subsystem: subsystem)
     } catch {
       printErr("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
       throw error
     }
   }
 
-  /// Parses log output into structured entries
-  private func parseLogOutput(_ output: String, subsystem: String) -> [LogEntry] {
-    let lines = output.components(separatedBy: .newlines)
+  /// Parses JSON log output into structured entries
+  private func parseJSONLogOutput(_ output: String, subsystem: String) -> [LogEntry] {
+    guard let data = output.data(using: .utf8) else {
+      debug("Failed to convert output to UTF-8 data")
+      return []
+    }
+
     var entries: [LogEntry] = []
 
-    for line in lines {
-      guard !line.isEmpty else { continue }
-
-      // Skip header lines
-      if line.hasPrefix("Timestamp") || line.hasPrefix("---") {
-        continue
+    do {
+      guard let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+      else {
+        debug("Failed to parse JSON as array of dictionaries")
+        return []
       }
 
-      // Parse syslog format: timestamp process[pid] (subsystem): message
-      let entry = parseLogLine(line, subsystem: subsystem)
+      for jsonEntry in jsonArray {
+        guard let timestamp = jsonEntry["timestamp"] as? String,
+          let messageType = jsonEntry["messageType"] as? String,
+          let eventMessage = jsonEntry["eventMessage"] as? String,
+          let processImagePath = jsonEntry["processImagePath"] as? String
+        else {
+          continue
+        }
 
-      // Filter for Hue if requested
-      if hueOnly {
-        if entry.containsHueReference {
+        // Parse timestamp (format: "2026-01-29 14:25:34.202233+0000")
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        guard let date = formatter.date(from: timestamp) else {
+          debug("Failed to parse timestamp: \(timestamp)")
+          continue
+        }
+
+        // Extract process name from path
+        let processName = (processImagePath as NSString).lastPathComponent
+
+        // Map messageType to LogLevel
+        let level: LogLevel
+        switch messageType {
+        case "Debug":
+          level = .debug
+        case "Info":
+          level = .info
+        case "Default":
+          level = .info
+        case "Error":
+          level = .error
+        case "Fault":
+          level = .fault
+        default:
+          level = .info
+        }
+
+        let entry = LogEntry(
+          timestamp: date,
+          subsystem: subsystem,
+          process: processName,
+          level: level,
+          message: eventMessage
+        )
+
+        // Filter for Hue if requested
+        if hueOnly {
+          if entry.containsHueReference {
+            entries.append(entry)
+          }
+        } else {
           entries.append(entry)
         }
-      } else {
-        entries.append(entry)
       }
-    }
 
-    debug("Parsed \(entries.count) entries from \(lines.count) lines for \(subsystem)")
+      debug("Parsed \(entries.count) entries from \(jsonArray.count) JSON objects for \(subsystem)")
+    } catch {
+      debug("JSON parsing error: \(error)")
+    }
 
     return entries
-  }
-
-  /// Parses a single log line
-  private func parseLogLine(_ line: String, subsystem: String) -> LogEntry {
-    // Simple parsing - extract timestamp, level, and message
-    var timestamp = Date()
-    var level = LogLevel.info
-    let process = ""
-    let message = line
-
-    // Try to extract timestamp (first component before a space)
-    let components = line.components(separatedBy: " ")
-    if components.count >= 3 {
-      // Format: YYYY-MM-DD HH:MM:SS.mmm...
-      let dateString = components[0] + " " + components[1]
-      let formatter = DateFormatter()
-      formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-      if let parsed = formatter.date(from: String(dateString.prefix(19))) {
-        timestamp = parsed
-      }
-    }
-
-    // Detect log level from message content
-    if line.localizedStandardContains("error") {
-      level = .error
-    } else if line.localizedStandardContains("warning") {
-      level = .warning
-    } else if line.localizedStandardContains("debug") {
-      level = .debug
-    } else if line.localizedStandardContains("fault") {
-      level = .fault
-    }
-
-    return LogEntry(
-      timestamp: timestamp,
-      subsystem: subsystem,
-      process: process,
-      level: level,
-      message: message
-    )
   }
 }
 
