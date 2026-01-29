@@ -67,37 +67,16 @@ public struct LogEntry: Sendable {
 
     // Remove UUIDs (8-4-4-4-12 format)
     let uuidPattern =
-      #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#
-    if let regex = try? NSRegularExpression(pattern: uuidPattern) {
-      let range = NSRange(normalized.startIndex..., in: normalized)
-      normalized = regex.stringByReplacingMatches(
-        in: normalized,
-        range: range,
-        withTemplate: "<UUID>"
-      )
-    }
+      /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/
+    normalized = normalized.replacing(uuidPattern, with: "<UUID>")
 
     // Remove hex addresses (0x followed by hex digits)
-    let hexPattern = #"0x[0-9A-Fa-f]+"#
-    if let regex = try? NSRegularExpression(pattern: hexPattern) {
-      let range = NSRange(normalized.startIndex..., in: normalized)
-      normalized = regex.stringByReplacingMatches(
-        in: normalized,
-        range: range,
-        withTemplate: "<ADDR>"
-      )
-    }
+    let hexPattern = /0x[0-9A-Fa-f]+/
+    normalized = normalized.replacing(hexPattern, with: "<ADDR>")
 
     // Remove timestamps (common formats)
-    let timestampPattern = #"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+"#
-    if let regex = try? NSRegularExpression(pattern: timestampPattern) {
-      let range = NSRange(normalized.startIndex..., in: normalized)
-      normalized = regex.stringByReplacingMatches(
-        in: normalized,
-        range: range,
-        withTemplate: "<TIMESTAMP>"
-      )
-    }
+    let timestampPattern = /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+/
+    normalized = normalized.replacing(timestampPattern, with: "<TIMESTAMP>")
 
     return normalized
   }

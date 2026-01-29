@@ -140,9 +140,10 @@ When defining a protocol, the code should be arranged in the following order:
 
 ## Swift coding guidelines
 
-- Prefer Swift-native APIs over older Foundation patterns.
+- Prefer Swift-native APIs over older Foundation or CoreFoundation patterns.
   - Prefer `replacing("a", with: "b")` over `replacingOccurrences(of:with:)`.
   - Prefer `URL.documentsDirectory` and `appending(path:)`.
+  - Prefer Swift RegEx over `NSRegularExpression`.
 - Formatting:
   - Never use C-style numeric formatting (`String(format:)`) in SwiftUI.
   - Prefer `format:` style formatting (example: `Text(value, format: .number.precision(.fractionLength(2)))`).

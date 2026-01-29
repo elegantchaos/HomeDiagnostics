@@ -246,13 +246,13 @@ public struct LogCollector {
   /// - Returns: `true` if the text matches the pattern.
   public func matchesFilter(_ text: String, pattern: String) -> Bool {
     // Try as regex first
-    if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-      let range = NSRange(text.startIndex..., in: text)
-      return regex.firstMatch(in: text, range: range) != nil
+    do {
+      let regex = try Regex(pattern).ignoresCase()
+      return text.contains(regex)
+    } catch {
+      // Fall back to plain text search (case-insensitive)
+      return text.localizedStandardContains(pattern)
     }
-
-    // Fall back to plain text search (case-insensitive)
-    return text.localizedStandardContains(pattern)
   }
 }
 
