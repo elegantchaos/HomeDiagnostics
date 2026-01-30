@@ -31,11 +31,10 @@ public struct LogAnalysis: Sendable {
   /// All log entries that were analyzed.
   public let allEntries: [LogEntry]
 
-  /// UUID-to-name mappings extracted from log entries.
+  /// UUID/name resolver extracted from log entries.
   ///
-  /// Contains associations between UUIDs found in logs and human-readable
-  /// names discovered through various patterns (path prefixes, action sets, etc.).
-  public let uuidNamer: UUIDNamer
+  /// Contains associations between UUIDs/names and resolved entities.
+  public let uuidNameResolver: EntityResolver
 
   /// Creates a new log analysis result.
   ///
@@ -58,7 +57,7 @@ public struct LogAnalysis: Sendable {
     subsystemCounts: [String: Int],
     problematicEntries: [LogEntry],
     allEntries: [LogEntry],
-    uuidNamer: UUIDNamer
+    uuidNameResolver: EntityResolver
   ) {
     self.totalEntries = totalEntries
     self.errorCount = errorCount
@@ -68,7 +67,7 @@ public struct LogAnalysis: Sendable {
     self.subsystemCounts = subsystemCounts
     self.problematicEntries = problematicEntries
     self.allEntries = allEntries
-    self.uuidNamer = uuidNamer
+    self.uuidNameResolver = uuidNameResolver
   }
 }
 

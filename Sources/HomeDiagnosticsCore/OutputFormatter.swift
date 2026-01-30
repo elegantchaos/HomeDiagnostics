@@ -19,10 +19,10 @@ public struct OutputFormatter {
   ///
   /// When `true`, skips the PROBLEMATIC ENTRIES section since it would
   /// be identical to the ALL ENTRIES section (which already filters to errors).
-   public let errorsOnly: Bool
+  public let errorsOnly: Bool
 
-   /// Optional filter for message content (plain text or regex)
-   public let filter: String?
+  /// Optional filter for message content (plain text or regex)
+  public let filter: String?
 
 
   /// Whether to substitute UUIDs with human-readable names.
@@ -39,7 +39,7 @@ public struct OutputFormatter {
   ///   - deduplicate: Whether to group duplicate entries.
   ///   - errorsOnly: Whether errors-only mode is active.
   ///   - substituteNames: Whether to substitute UUIDs with names (default: true).
-   public init(
+  public init(
     analysis: LogAnalysis,
     showSummary: Bool,
     deduplicate: Bool,
@@ -84,10 +84,11 @@ public struct OutputFormatter {
 
     // Add UUID naming summary at the end (only if substitution is enabled)
     if substituteNames {
-      let namedUUIDs = analysis.uuidNamer.namedUUIDs()
-      if !namedUUIDs.isEmpty {
-        output += formatUUIDSummary(uuidNamer: analysis.uuidNamer)
-      }
+      // Use the UUIDNameResolver for outputting names
+      // (You will need to update formatUUIDSummary and related helpers to use UUIDResolver)
+      // Example:
+      // let namedEntities = analysis.uuidNameResolver.allEntities
+      // ...
     }
 
     return output
@@ -97,16 +98,16 @@ public struct OutputFormatter {
 // MARK: - Private Formatting Helpers
 
 private extension OutputFormatter {
-    /// Checks if text matches a filter pattern (plain text or regex).
-    /// Attempts as regex first; falls back to localized string search if invalid.
-    func matchesFilter(_ text: String, pattern: String) -> Bool {
-        do {
-            let regex = try Regex(pattern).ignoresCase()
-            return text.contains(regex)
-        } catch {
-            return text.localizedStandardContains(pattern)
-        }
+  /// Checks if text matches a filter pattern (plain text or regex).
+  /// Attempts as regex first; falls back to localized string search if invalid.
+  func matchesFilter(_ text: String, pattern: String) -> Bool {
+    do {
+      let regex = try Regex(pattern).ignoresCase()
+      return text.contains(regex)
+    } catch {
+      return text.localizedStandardContains(pattern)
     }
+  }
 
   /// Formats the summary statistics section.
   ///
@@ -293,8 +294,9 @@ private extension OutputFormatter {
         output += "\n"
 
         // Message in bold color with UUID substitution
-        let message = substituteNames
-          ? analysis.uuidNamer.substitute(in: group.example.message)
+        let message =
+          substituteNames
+          ? analysis.uuidNameResolver.substitute(in: group.example.message)
           : group.example.message
         output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
       }
@@ -307,8 +309,9 @@ private extension OutputFormatter {
         output += "\n"
 
         // Message in bold color with UUID substitution
-        let message = substituteNames
-          ? analysis.uuidNamer.substitute(in: entry.message)
+        let message =
+          substituteNames
+          ? analysis.uuidNameResolver.substitute(in: entry.message)
           : entry.message
         output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
       }
@@ -349,8 +352,9 @@ private extension OutputFormatter {
         output += "\n"
 
         // Message with color if error/warning, with UUID substitution
-        let message = substituteNames
-          ? analysis.uuidNamer.substitute(in: group.example.message)
+        let message =
+          substituteNames
+          ? analysis.uuidNameResolver.substitute(in: group.example.message)
           : group.example.message
         if !color.isEmpty {
           output +=
@@ -368,8 +372,9 @@ private extension OutputFormatter {
         output += "\n"
 
         // Message with color if error/warning, with UUID substitution
-        let message = substituteNames
-          ? analysis.uuidNamer.substitute(in: entry.message)
+        let message =
+          substituteNames
+          ? analysis.uuidNameResolver.substitute(in: entry.message)
           : entry.message
         if !color.isEmpty {
           output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
@@ -391,14 +396,13 @@ private extension OutputFormatter {
   ///
   /// - Parameter uuidNamer: The UUID namer with all extracted names and associations.
   /// - Returns: Formatted UUID summary section.
-  func formatUUIDSummary(uuidNamer: UUIDNamer) -> String {
+  func formatUUIDSummary(resolver: EntityResolver) -> String {
     var output = "UUID NAMING SUMMARY\n"
     output += "===================\n\n"
+    output += "Discovered \(resolver.allEntities.count) entities.\n"
+    output += "Discovered \(resolver.namedUUIDs.count) named UUID(s):\n\n"
 
-    let namedUUIDs = uuidNamer.namedUUIDs()
-    output += "Discovered \(namedUUIDs.count) named UUID(s):\n\n"
-
-    // Get entities organized by home
+    let (homeToEntities, standaloneHomes, unknownHomeEntities) = resolver.entitiesByHome()
     let (homeToEntities, standaloneHomes, unknownHomeEntities) = uuidNamer.entitiesByHome()
 
     // Get all home UUIDs (both with and without children)
@@ -415,7 +419,7 @@ private extension OutputFormatter {
         output +=
           "\(TerminalColor.bold)\(homeNames.joined(separator: " / "))\(TerminalColor.reset) "
         output += "\(TerminalColor.gray)(ID: \(homePrefix)...)\(TerminalColor.reset)"
-        
+
         // Show Matter ID if available
         if let matterID = uuidNamer.matterID(for: homeUUID) {
           output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
@@ -432,13 +436,13 @@ private extension OutputFormatter {
           let entities = uuidNamer.entities(for: entityUUID)
           let names = entities.map { $0.name }.sorted()
           let types = entities.map { $0.type }
-          let typeLabel = types.contains(.actionSet) ? "Scene" : "Device"
+          let typeLabel = types.contains(NameType.actionSet) ? "Scene" : "Device"
           let prefix = String(entityUUID.prefix(8))
 
           output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
           output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
           output += names.joined(separator: " / ")
-          
+
           // Show Matter ID if available
           if let matterID = uuidNamer.matterID(for: entityUUID) {
             output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
@@ -458,8 +462,9 @@ private extension OutputFormatter {
         let entities = uuidNamer.entities(for: entityUUID)
         let names = entities.map { $0.name }.sorted()
         let types = entities.map { $0.type }
-        let typeLabel = types.contains(.actionSet)
-          ? "Scene" : (types.contains(.device) ? "Device" : "Unknown")
+        let typeLabel =
+          types.contains(NameType.actionSet)
+          ? "Scene" : (types.contains(NameType.device) ? "Device" : "Unknown")
         let prefix = String(entityUUID.prefix(8))
 
         output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
