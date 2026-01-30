@@ -25,6 +25,10 @@ struct HomeDiagnostics: AsyncParsableCommand {
   @Option(name: .long, help: "Number of hours to look back")
   var hours: Int?
 
+  /// Number of minutes to look back in logs.
+  @Option(name: .long, help: "Number of minutes to look back")
+  var minutes: Int?
+
   /// Filter pattern for log messages (plain text or regex).
   @Option(name: .shortAndLong, help: "Filter log messages (plain text or regex pattern)")
   var filter: String?
@@ -78,8 +82,9 @@ struct HomeDiagnostics: AsyncParsableCommand {
       throw ExitCode.validationFailure
     }
 
-    if days != nil && hours != nil {
-      printErr("[ERROR] Cannot specify both --days and --hours")
+    let timeOptionCount = [days, hours, minutes].compactMap { $0 }.count
+    if timeOptionCount > 1 {
+      printErr("[ERROR] Cannot specify more than one of --days, --hours, or --minutes")
       throw ExitCode.validationFailure
     }
 
@@ -87,7 +92,10 @@ struct HomeDiagnostics: AsyncParsableCommand {
     let timeInterval: String
     let timeDescription: String
 
-    if let hours = hours {
+    if let minutes = minutes {
+      timeInterval = "\(minutes)m"
+      timeDescription = "\(minutes) minute(s)"
+    } else if let hours = hours {
       timeInterval = "\(hours)h"
       timeDescription = "\(hours) hour(s)"
     } else {

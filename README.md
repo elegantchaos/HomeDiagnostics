@@ -29,7 +29,10 @@ swift build --target home-diagnostics
 ### Basic Usage
 
 ```bash
-# View recent errors
+# View errors from recent minutes
+home-diagnostics --minutes 30 --errors-only
+
+# View recent errors (last 6 hours)
 home-diagnostics --hours 6 --errors-only
 
 # Diagnose specific device
@@ -46,9 +49,10 @@ home-diagnostics --days 14 --summary
 ```bash
 --days <n>, -d <n>    # Number of days to look back (default: 14)
 --hours <n>           # Number of hours to look back
+--minutes <n>         # Number of minutes to look back
 ```
 
-**Note**: Cannot specify both `--days` and `--hours`.
+**Note**: Cannot specify more than one of `--days`, `--hours`, or `--minutes`.
 
 ### Filtering
 
@@ -85,6 +89,9 @@ home-diagnostics --days 14 --summary
 
 ```bash
 # Recent problems
+home-diagnostics --minutes 15 --errors-only --summary
+
+# Recent problems (last 2 hours)
 home-diagnostics --hours 2 --errors-only --summary
 
 # Device diagnosis with deduplication

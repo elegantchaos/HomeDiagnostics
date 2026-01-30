@@ -14,10 +14,13 @@ This document covers common workflows, filter patterns, troubleshooting steps, a
 ### Diagnose Non-Responsive Device
 
 ```bash
-# 1. Check recent activity
+# 1. Check the last few minutes for quick insight
+home-diagnostics --minutes 10 --filter "device-name" --errors-only
+
+# 2. Check recent activity (last 6 hours)
 home-diagnostics --hours 6 --filter "device-name" --errors-only
 
-# 2. Look for patterns over last week
+# 3. Look for patterns over last week
 home-diagnostics --days 7 --filter "device-name" --errors-only --dedupe
 
 # 3. Check if it's a manufacturer-wide issue
