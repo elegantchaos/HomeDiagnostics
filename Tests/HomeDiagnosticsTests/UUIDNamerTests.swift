@@ -369,5 +369,117 @@ struct UUIDNamerTests {
       homeToEntities[homeUUID]?
         .contains("8006AFD6-5739-53CB-8175-DA40FF2BFCD2".uppercased()) == true)
   }
+
+  /// Tests HMDHome pattern extraction with both internal ID and spiID
+  @Test("Extract home from HMDHome pattern")
+  func testHMDHomePatternExtraction() async throws {
+    var namer = UUIDNamer()
+
+    // Extract from HMDHome pattern
+    namer.extractNames(
+      from:
+        "<HMDHome, ID = 3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852, spiID = 3B23B284-673A-5FFF-A863-8F62C42711C0, NM = Bank Street>"
+    )
+
+    // Both internal ID and spiID should have the home name
+    let internalName = namer.displayName(for: "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852")
+    let spiName = namer.displayName(for: "3B23B284-673A-5FFF-A863-8F62C42711C0")
+
+    #expect(internalName == "Bank Street-3C0F85CD")
+    #expect(spiName == "Bank Street-3B23B284")
+
+    // Verify internal ID lookup
+    let internalID = namer.internalHomeID(for: "3B23B284-673A-5FFF-A863-8F62C42711C0")
+    #expect(internalID == "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852".uppercased())
+  }
+
+  /// Tests Matter snapshot pattern extraction
+  @Test("Extract home from Matter snapshot pattern")
+  func testMatterSnapshotExtraction() async throws {
+    var namer = UUIDNamer()
+
+    // Extract from Matter snapshot pattern
+    namer.extractNames(
+      from:
+        "new matter snapshot for '3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852', updateType:home(Bank Street), didChange:true"
+    )
+
+    let homeName = namer.displayName(for: "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852")
+    #expect(homeName == "Bank Street-3C0F85CD")
+  }
+
+  /// Tests device association with home using HMDHome pattern
+  @Test("Associate devices with home via HMDHome pattern")
+  func testDeviceAssociationWithHMDHome() async throws {
+    var namer = UUIDNamer()
+
+    // Extract device with home name
+    namer.extractNames(
+      from: "[Bank Street/Lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test")
+
+    // Extract HMDHome pattern
+    namer.extractNames(
+      from:
+        "<HMDHome, ID = 3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852, spiID = 3B23B284-673A-5FFF-A863-8F62C42711C0, NM = Bank Street>"
+    )
+
+    // Device should be automatically associated with internal ID
+    let (homeToEntities, _, unknownHomeEntities) = namer.entitiesByHome()
+    let homeUUID = "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852".uppercased()
+
+    #expect(homeToEntities[homeUUID]?.count == 1)
+    #expect(
+      homeToEntities[homeUUID]?
+        .contains("4A8856A0-38E3-5AF4-AC52-8390FFE944A2".uppercased()) == true)
+    #expect(unknownHomeEntities.isEmpty)
+  }
+
+  /// Tests real-world scenario with spiID from found homes and internal ID from paths
+  @Test("Real-world: spiID in found homes, internal ID in device paths")
+  func testRealWorldHomeScenario() async throws {
+    var namer = UUIDNamer()
+
+    // Extract devices with home names (uses internal ID)
+    namer.extractNames(
+      from: "[Bank Street/Lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test")
+    namer.extractNames(
+      from: "[Plantation Road/Camera/CBD9ADE0-29ED-5945-A6A9-6E1750392F3D] Test")
+
+    // Extract found homes (uses spiID)
+    namer.extractNames(
+      from:
+        "updateHomes(timeout:) found homes [3B23B284-673A-5FFF-A863-8F62C42711C0, 92759DC3-97B6-5A09-95CC-1070E16D9260]"
+    )
+
+    // Extract HMDHome patterns (links internal ID and spiID)
+    namer.extractNames(
+      from:
+        "<HMDHome, ID = 3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852, spiID = 3B23B284-673A-5FFF-A863-8F62C42711C0, NM = Bank Street>"
+    )
+    namer.extractNames(
+      from:
+        "<HMDHome, ID = 1C10D9FC-AE61-4600-A21A-932051BED77D, spiID = 92759DC3-97B6-5A09-95CC-1070E16D9260, NM = Plantation Road>"
+    )
+
+    namer.associateHomeNames()
+
+    // Both homes should have names
+    let bankStreet = namer.displayName(for: "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852")
+    let plantationRoad = namer.displayName(for: "1C10D9FC-AE61-4600-A21A-932051BED77D")
+
+    #expect(bankStreet == "Bank Street-3C0F85CD")
+    #expect(plantationRoad == "Plantation Road-1C10D9FC")
+
+    // Devices should be associated with correct homes
+    let (homeToEntities, _, unknownHomeEntities) = namer.entitiesByHome()
+
+    let bankStreetUUID = "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852".uppercased()
+    let plantationRoadUUID = "1C10D9FC-AE61-4600-A21A-932051BED77D".uppercased()
+
+    #expect(homeToEntities[bankStreetUUID]?.count == 1)
+    #expect(homeToEntities[plantationRoadUUID]?.count == 1)
+    #expect(unknownHomeEntities.isEmpty)
+  }
 }
+
 

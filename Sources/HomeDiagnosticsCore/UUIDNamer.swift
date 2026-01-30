@@ -75,8 +75,7 @@ public struct UUIDNamer: Sendable {
   /// Set of home names seen in path patterns.
   ///
   /// Extracted from path-based patterns where the first component is the
-  /// home name. Used to associate home names with home UUIDs found in
-  /// "found homes" lists.
+  /// home name. Used as fallback if direct extraction patterns don't appear.
   private var seenHomeNames: Set<String>
 
   /// Mapping from device/action set UUID to home name.
@@ -93,12 +92,26 @@ public struct UUIDNamer: Sendable {
   /// by home.
   private var entityToHomeUUID: [String: String]
 
+  /// Mapping from home spiID to internal ID.
+  ///
+  /// HomeKit uses two UUIDs per home: an internal ID (used in device paths)
+  /// and a spiID (used in "found homes" lists). This tracks the relationship
+  /// between them.
+  private var homeSpiIDToInternalID: [String: String]
+
+  /// Mapping from UUID to Matter ID.
+  ///
+  /// Tracks Matter IDs for devices/homes when detected in logs.
+  private var uuidToMatterID: [String: String]
+
   /// Creates a new UUID namer with empty mappings.
   public init() {
     self.uuidToEntities = [:]
     self.seenHomeNames = []
     self.entityToHomeName = [:]
     self.entityToHomeUUID = [:]
+    self.homeSpiIDToInternalID = [:]
+    self.uuidToMatterID = [:]
   }
 
   /// Extracts UUID-name associations from a log entry message.
@@ -106,54 +119,88 @@ public struct UUIDNamer: Sendable {
   /// Scans the message for multiple pattern types:
   /// - Path-based: [Home/Device/UUID] - extracts device names and home names
   /// - Action sets: kActionSetName and kActionSetUUID in structured data
-  /// - Home lists: found homes [UUID1, UUID2, ...] - associates with home names
+  /// - Home lists: found homes [UUID1, UUID2, ...] - registers home spiIDs
+  /// - HMDHome objects: <HMDHome, ID = ..., spiID = ..., NM = ...> - direct home info
+  /// - Matter snapshots: new matter snapshot for 'UUID', updateType:home(Name)
   ///
   /// - Parameter message: The log message to scan for UUID-name associations.
   public mutating func extractNames(from message: String) {
     extractPathBasedNames(from: message)
     extractActionSetNames(from: message)
     extractHomeUUIDs(from: message)
+    extractHomeFromHMDHomePattern(from: message)
+    extractHomeFromMatterSnapshot(from: message)
   }
 
   /// Second-pass extraction: associates home names with home UUIDs.
   ///
-  /// After initial extraction, attempts to match home names seen in path
-  /// patterns with registered home UUIDs. This is called after all messages
-  /// have been processed.
+  /// After initial extraction, resolves any remaining home name associations.
+  /// By this point, most homes should already be named through direct patterns
+  /// (HMDHome or Matter snapshot). This method handles edge cases using fallback
+  /// heuristics.
   ///
-  /// If the number of home UUIDs matches the number of home names, they are
-  /// associated in alphabetical order (both sorted). This is a heuristic that
-  /// works when there's only one home or when home names and UUIDs are
-  /// consistently ordered.
-  ///
-  /// Also resolves entity-to-home mappings by converting home names to UUIDs.
+  /// Also uses spiID-to-internal ID mappings to ensure entities are properly
+  /// associated with their homes.
   public mutating func associateHomeNames() {
-    // For each home UUID without a name, try to assign a home name
-    // This is best-effort: if we have N home UUIDs and M home names,
-    // we can only associate them if N == M
-    let homeUUIDs =
+    // First, use spiID-to-internal ID mappings to link homes
+    for (spiID, internalID) in homeSpiIDToInternalID {
+      // If spiID has a name but internal ID doesn't, copy it
+      if let spiIDEntities = uuidToEntities[spiID], !spiIDEntities.isEmpty {
+        if uuidToEntities[internalID] == nil || uuidToEntities[internalID]!.isEmpty {
+          for entity in spiIDEntities {
+            addName(entity.name, for: internalID, type: entity.type)
+          }
+        }
+      }
+
+      // If internal ID has a name but spiID doesn't, copy it
+      if let internalEntities = uuidToEntities[internalID], !internalEntities.isEmpty {
+        if uuidToEntities[spiID] == nil || uuidToEntities[spiID]!.isEmpty {
+          for entity in internalEntities {
+            addName(entity.name, for: spiID, type: entity.type)
+          }
+        }
+      }
+    }
+
+    // Fallback heuristic: for unnamed home UUIDs, try alphabetical matching
+    // This only runs if we have unnamed homes after direct extraction
+    let unnamedHomeUUIDs =
       uuidToEntities
       .filter { $0.value.isEmpty }
       .map { $0.key }
       .sorted()
 
-    let sortedHomeNames = Array(seenHomeNames).sorted()
+    // Find home names that haven't been associated yet
+    let usedNames = Set(
+      uuidToEntities.values.flatMap { entities in
+        entities.filter { $0.type == .home }.map { $0.name }
+      })
+    let unusedHomeNames = seenHomeNames.subtracting(usedNames).sorted()
 
-    // Create a mapping from home name to home UUID
-    var homeNameToUUID: [String: String] = [:]
-
-    // Simple heuristic: if counts match, associate in alphabetical order
-    if homeUUIDs.count == sortedHomeNames.count && !homeUUIDs.isEmpty {
-      for (uuid, homeName) in zip(homeUUIDs, sortedHomeNames) {
+    // Only use alphabetical matching if counts match (very uncertain heuristic)
+    if unnamedHomeUUIDs.count == unusedHomeNames.count && !unnamedHomeUUIDs.isEmpty {
+      var homeNameToUUID: [String: String] = [:]
+      for (uuid, homeName) in zip(unnamedHomeUUIDs, unusedHomeNames) {
         addName(homeName, for: uuid, type: .home)
         homeNameToUUID[homeName] = uuid
       }
+
+      // Resolve entity-to-home mappings for these fallback names
+      for (entityUUID, homeName) in entityToHomeName {
+        if let homeUUID = homeNameToUUID[homeName] {
+          if entityToHomeUUID[entityUUID] == nil {
+            entityToHomeUUID[entityUUID] = homeUUID
+          }
+        }
+      }
     }
 
-    // Now resolve entity-to-home mappings from names to UUIDs
-    for (entityUUID, homeName) in entityToHomeName {
-      if let homeUUID = homeNameToUUID[homeName] {
-        entityToHomeUUID[entityUUID] = homeUUID
+    // Resolve any remaining entities using spiID mappings
+    for (entityUUID, homeUUID) in entityToHomeUUID {
+      // If entity points to a spiID, convert to internal ID
+      if let internalID = homeSpiIDToInternalID[homeUUID] {
+        entityToHomeUUID[entityUUID] = internalID
       }
     }
   }
@@ -304,6 +351,25 @@ public struct UUIDNamer: Sendable {
   /// - Returns: The set of named entities, or empty set if not found.
   public func entities(for uuid: String) -> Set<NamedEntity> {
     return uuidToEntities[uuid.uppercased()] ?? []
+  }
+
+  /// Returns the Matter ID for a given UUID, if available.
+  ///
+  /// - Parameter uuid: The UUID to look up (case-insensitive).
+  /// - Returns: The Matter ID, or nil if not found.
+  public func matterID(for uuid: String) -> String? {
+    return uuidToMatterID[uuid.uppercased()]
+  }
+
+  /// Returns the internal home ID for a given spiID, if available.
+  ///
+  /// HomeKit uses two UUIDs per home. This method converts a spiID
+  /// (from "found homes" lists) to the internal ID (used in device paths).
+  ///
+  /// - Parameter spiID: The spiID to look up (case-insensitive).
+  /// - Returns: The internal ID, or nil if not found.
+  public func internalHomeID(for spiID: String) -> String? {
+    return homeSpiIDToInternalID[spiID.uppercased()]
   }
 
   /// Adds a named entity for a UUID to the mapping.
@@ -473,8 +539,8 @@ private extension UUIDNamer {
   /// Matches patterns like:
   /// - updateHomes(timeout:) found homes [UUID1, UUID2, ...]
   ///
-  /// Registers the UUIDs as home type. If a home name was previously
-  /// discovered from path patterns, associates it with the UUID.
+  /// Registers the UUIDs as home spiIDs. These will be linked to internal IDs
+  /// through HMDHome pattern extraction or fallback heuristics.
   ///
   /// - Parameter message: The message to scan.
   mutating func extractHomeUUIDs(from message: String) {
@@ -486,12 +552,69 @@ private extension UUIDNamer {
       for uuid in uuidList.split(separator: ",") {
         let cleaned = uuid.trimmingCharacters(in: .whitespaces)
         registerUUID(cleaned)
+      }
+    }
+  }
 
-        // Try to find a home name from previously seen paths
-        // This is a heuristic: if we've seen [HomeName/Device/UUID] patterns,
-        // we can extract the home names and try to match them to home UUIDs
-        // For now, we'll mark these as home type without a name
-        // (names will come from other extraction in a second pass)
+  /// Extracts home information from HMDHome object description patterns.
+  ///
+  /// Matches patterns like:
+  /// - <HMDHome, ID = 3C0F85CD-..., spiID = 3B23B284-..., NM = Bank Street>
+  ///
+  /// This is the most reliable pattern as it contains:
+  /// - Internal ID (used in device paths)
+  /// - SPI ID (used in "found homes" lists)
+  /// - Home name
+  ///
+  /// - Parameter message: The message to scan.
+  mutating func extractHomeFromHMDHomePattern(from message: String) {
+    // Pattern: <HMDHome, ID = UUID1, spiID = UUID2, NM = Name>
+    let pattern =
+      /<HMDHome, ID = ([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}), spiID = ([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}), NM = ([^>]+)>/
+
+    for match in message.matches(of: pattern) {
+      let internalID = String(match.1)
+      let spiID = String(match.2)
+      let name = String(match.3)
+
+      // Add name to both UUIDs
+      addName(name, for: internalID, type: .home)
+      addName(name, for: spiID, type: .home)
+
+      // Track the spiID-to-internal ID relationship
+      homeSpiIDToInternalID[spiID.uppercased()] = internalID.uppercased()
+
+      // Mark entities that belong to this home (by name) as belonging to internal ID
+      for (entityUUID, homeName) in entityToHomeName where homeName == name {
+        entityToHomeUUID[entityUUID] = internalID.uppercased()
+      }
+    }
+  }
+
+  /// Extracts home information from Matter snapshot patterns.
+  ///
+  /// Matches patterns like:
+  /// - new matter snapshot for '3C0F85CD-...', updateType:home(Bank Street)
+  ///
+  /// This pattern provides the internal ID (used in device paths) and home name.
+  /// Acts as a backup if HMDHome pattern is not found.
+  ///
+  /// - Parameter message: The message to scan.
+  mutating func extractHomeFromMatterSnapshot(from message: String) {
+    // Pattern: new matter snapshot for 'UUID', updateType:home(Name)
+    let pattern =
+      /new matter snapshot for '([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})', updateType:home\(([^)]+)\)/
+
+    for match in message.matches(of: pattern) {
+      let uuid = String(match.1)
+      let name = String(match.2)
+
+      // Add name to internal ID
+      addName(name, for: uuid, type: .home)
+
+      // Associate entities with this home by name
+      for (entityUUID, homeName) in entityToHomeName where homeName == name {
+        entityToHomeUUID[entityUUID] = uuid.uppercased()
       }
     }
   }

@@ -213,7 +213,7 @@ struct FormattingTests {
       from:
         "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message")
     namer.extractNames(
-      from: "updateHomes(timeout:) found homes [3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852]")
+      from: "<HMDHome, ID = 3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852, spiID = 3B23B284-673A-5FFF-A863-8F62C42711C0, NM = Bank Street>")
     namer.associateHomeNames()
 
     let entry = LogEntry(
@@ -246,7 +246,7 @@ struct FormattingTests {
     // Verify UUID summary section appears with home name and device
     #expect(output.contains("UUID NAMING SUMMARY"))
     #expect(output.contains("Bank Street"))  // Home name
-    #expect(output.contains("3C0F85CD..."))  // Home UUID prefix
+    #expect(output.contains("ID: 3C0F85CD..."))  // Home UUID prefix with new format
     #expect(output.contains("4A8856A0..."))  // Device UUID prefix
     #expect(output.contains("Hue color lamp"))  // Device name
   }

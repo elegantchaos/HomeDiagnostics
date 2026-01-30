@@ -376,10 +376,16 @@ private extension OutputFormatter {
       if !homeNames.isEmpty {
         output +=
           "\(TerminalColor.bold)\(homeNames.joined(separator: " / "))\(TerminalColor.reset) "
-        output += "\(TerminalColor.gray)(\(homePrefix)...)\(TerminalColor.reset)\n"
+        output += "\(TerminalColor.gray)(ID: \(homePrefix)...)\(TerminalColor.reset)"
+        
+        // Show Matter ID if available
+        if let matterID = uuidNamer.matterID(for: homeUUID) {
+          output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
+        }
+        output += "\n"
       } else {
         output += "\(TerminalColor.bold)Home\(TerminalColor.reset) "
-        output += "\(TerminalColor.gray)(\(homePrefix)...)\(TerminalColor.reset)\n"
+        output += "\(TerminalColor.gray)(ID: \(homePrefix)...)\(TerminalColor.reset)\n"
       }
 
       // Display entities belonging to this home
@@ -394,6 +400,11 @@ private extension OutputFormatter {
           output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
           output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
           output += names.joined(separator: " / ")
+          
+          // Show Matter ID if available
+          if let matterID = uuidNamer.matterID(for: entityUUID) {
+            output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
+          }
           output += "\n"
         }
       }
