@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Represents the severity of a log entry, from least to most severe.
 /// Conforms to `Comparable` to allow sorting by severity.
-public enum LogLevel: String, Comparable, Sendable {
+public enum LogLevel: String, Comparable, Sendable, Codable {
   /// Debug-level message, typically verbose implementation details.
   case debug = "Debug"
 
@@ -20,6 +20,9 @@ public enum LogLevel: String, Comparable, Sendable {
   /// Fault message indicating a critical system failure.
   case fault = "Fault"
 
+  /// Default log level.
+  case `default` = "Default"
+  
   /// Compares two log levels by severity.
   ///
   /// - Parameters:

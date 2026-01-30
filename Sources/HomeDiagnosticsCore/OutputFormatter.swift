@@ -173,7 +173,7 @@ private extension OutputFormatter {
         return TerminalColor.red
       case .warning:
         return TerminalColor.yellow
-      case .info, .debug:
+      case .info, .debug, .default:
         return ""
     }
   }

@@ -7,6 +7,28 @@ import Subprocess
   import SystemPackage
 #endif
 
+struct RawLogEntries: Codable {
+  let entries: [RawLogEntry]
+}
+
+struct RawLogEntry: Codable {
+  let timestamp: Date
+  let messageType: LogLevel
+  let eventMessage: String
+  let subsystem: String
+  let processImagePath: String
+}
+
+extension LogEntry {
+  init(_ raw: RawLogEntry) {
+    timestamp = raw.timestamp
+    subsystem = raw.subsystem
+    process = (raw.processImagePath as NSString).lastPathComponent
+    level = raw.messageType
+    message = raw.eventMessage
+  }
+}
+
 /// Collects and parses logs from the macOS unified logging system.
 ///
 /// Queries multiple Home/HomeKit subsystems and aggregates their log entries.
@@ -167,89 +189,16 @@ public struct LogCollector: Sendable {
       return []
     }
 
-    var entries: [LogEntry] = []
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .customISO8601Cascade
 
     do {
-      guard let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-      else {
-        debugLogger?("Failed to parse JSON as array of dictionaries")
-        return []
-      }
-
-      for jsonEntry in jsonArray {
-        guard let timestamp = jsonEntry["timestamp"] as? String,
-          let messageType = jsonEntry["messageType"] as? String,
-          let eventMessage = jsonEntry["eventMessage"] as? String,
-          let processImagePath = jsonEntry["processImagePath"] as? String
-        else {
-          continue
-        }
-
-        // Parse timestamp (format: "2026-01-29 14:25:34.202233+0000")
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        guard let date = formatter.date(from: timestamp) else {
-          debugLogger?("Failed to parse timestamp: \(timestamp)")
-          continue
-        }
-
-        // Extract process name from path
-        let processName = (processImagePath as NSString).lastPathComponent
-
-        // Map messageType to LogLevel
-        let level: LogLevel
-        switch messageType {
-          case "Debug":
-            level = .debug
-          case "Info":
-            level = .info
-          case "Default":
-            level = .info
-          case "Error":
-            level = .error
-          case "Fault":
-            level = .fault
-          case "Warning":
-            level = .warning
-          default:
-            level = .info
-        }
-
-        let entry = LogEntry(
-          timestamp: date,
-          subsystem: subsystem,
-          process: processName,
-          level: level,
-          message: eventMessage
-        )
-
-        // Apply filters
-        var shouldInclude = true
-
-        // Filter for errors only if requested
-        if errorsOnly {
-          shouldInclude = shouldInclude && (level == .error || level == .fault || level == .warning)
-        }
-
-        // Apply filter if provided
-        if let filter = filter {
-          shouldInclude = shouldInclude && matchesFilter(entry.message, pattern: filter)
-        }
-
-        if shouldInclude {
-          entries.append(entry)
-        }
-      }
-
-      debugLogger?(
-        "Parsed \(entries.count) entries from \(jsonArray.count) JSON objects for \(subsystem)")
+      let entries = try decoder.decode(RawLogEntries.self, from: data).entries
+      return entries.map { LogEntry($0) }
     } catch {
-      debugLogger?("JSON parsing error: \(error)")
+      debugLogger?("Failed to parse JSON as array of dictionaries")
+      return []
     }
-
-    return entries
   }
 
   /// Checks if text matches a filter pattern (plain text or regex).
@@ -280,73 +229,23 @@ public struct LogCollector: Sendable {
   ///
   /// - Parameters:
   ///   - jsonString: JSON object string (without array brackets).
-  ///   - subsystem: The subsystem identifier for this log entry.
   /// - Returns: Parsed and filtered log entry, or `nil` if it should be filtered out or parsing fails.
-  public func parseJSONObject(_ jsonString: String, subsystem: String) -> LogEntry? {
+  public func parseJSONObject(_ jsonString: String, decoder: JSONDecoder) -> LogEntry? {
     guard let data = jsonString.data(using: .utf8) else {
       debugLogger?("Failed to convert JSON string to UTF-8 data")
       return nil
     }
 
     do {
-      guard let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-        debugLogger?("Failed to parse JSON object")
-        return nil
-      }
-
-      guard let timestamp = jsonObject["timestamp"] as? String,
-        let messageType = jsonObject["messageType"] as? String,
-        let eventMessage = jsonObject["eventMessage"] as? String,
-        let processImagePath = jsonObject["processImagePath"] as? String
-      else {
-        return nil
-      }
-
-      // Parse timestamp (format: "2026-01-29 14:25:34.202233+0000")
-      let formatter = DateFormatter()
-      formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
-      formatter.locale = Locale(identifier: "en_US_POSIX")
-      formatter.timeZone = TimeZone(secondsFromGMT: 0)
-      guard let date = formatter.date(from: timestamp) else {
-        debugLogger?("Failed to parse timestamp: \(timestamp)")
-        return nil
-      }
-
-      // Extract process name from path
-      let processName = (processImagePath as NSString).lastPathComponent
-
-      // Map messageType to LogLevel
-      let level: LogLevel
-      switch messageType {
-      case "Debug":
-        level = .debug
-      case "Info":
-        level = .info
-      case "Default":
-        level = .info
-      case "Error":
-        level = .error
-      case "Fault":
-        level = .fault
-      case "Warning":
-        level = .warning
-      default:
-        level = .info
-      }
-
-      let entry = LogEntry(
-        timestamp: date,
-        subsystem: subsystem,
-        process: processName,
-        level: level,
-        message: eventMessage
-      )
+      let parsed = try decoder.decode(RawLogEntry.self, from: data)
+      let entry = LogEntry(parsed)
 
       // Apply filters
       var shouldInclude = true
 
       // Filter for errors only if requested
       if errorsOnly {
+        let level = parsed.messageType
         shouldInclude = shouldInclude && (level == .error || level == .fault || level == .warning)
       }
 
@@ -357,10 +256,11 @@ public struct LogCollector: Sendable {
 
       return shouldInclude ? entry : nil
     } catch {
-      debugLogger?("JSON parsing error: \(error)")
+      debugLogger?("Failed to parse JSON object \(error)")
       return nil
     }
   }
+
 
   // MARK: - Public Streaming APIs
 
@@ -373,29 +273,41 @@ public struct LogCollector: Sendable {
   ///   If `nil`, defaults to Home/HomeKit subsystems.
   /// - Returns: An async throwing stream of `LogEntry` objects.
   public func streamLogs(subsystems: [String]? = nil) -> AsyncThrowingStream<LogEntry, Error> {
-    let subsystemsToUse = subsystems ?? [
-      "com.apple.Home",
-      "com.apple.HomeKit",
-      "com.apple.homed",
-    ]
+    let subsystemsToUse =
+      subsystems ?? [
+        "com.apple.Home",
+        "com.apple.HomeKit",
+        "com.apple.homed",
+      ]
 
     return AsyncThrowingStream { continuation in
-      // Hold a reference to the running task so we can cancel on termination.
-      let task = Task.detached(priority: nil) { [subsystemsToUse] in
-        do {
-          for subsystem in subsystemsToUse {
+      // Launch one task per subsystem to stream concurrently
+      let tasks = subsystemsToUse.map { subsystem in
+        Task.detached(priority: nil) { [subsystem] in
+          do {
             for try await entry in streamLogsForSubsystem(subsystem) {
               continuation.yield(entry)
             }
+          } catch {
+            // Propagate the first error and let others be cancelled
+            continuation.finish(throwing: error)
           }
-          continuation.finish()
-        } catch {
-          continuation.finish(throwing: error)
         }
       }
 
+      // A supervisor task waits for all subsystem tasks to finish then completes the stream
+      let supervisor = Task.detached(priority: nil) {
+        // Wait for all tasks to finish (ignoring their return values)
+        for task in tasks {
+          _ = await task.result
+        }
+        continuation.finish()
+      }
+
       continuation.onTermination = { @Sendable _ in
-        task.cancel()
+        // Cancel all child tasks and the supervisor when the stream is terminated
+        for task in tasks { task.cancel() }
+        supervisor.cancel()
       }
     }
   }
@@ -435,6 +347,9 @@ public struct LogCollector: Sendable {
 
           debugLogger?("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
 
+          let decoder = JSONDecoder()
+          decoder.dateDecodingStrategy = .customISO8601Cascade
+
           let result = try await Subprocess.run(
             .path(FilePath("/usr/bin/log")),
             arguments: Arguments(arguments),
@@ -449,7 +364,7 @@ public struct LogCollector: Sendable {
               for jsonString in completeObjects {
                 totalParsed += 1
 
-                if let entry = parseJSONObject(jsonString, subsystem: subsystem) {
+                if let entry = parseJSONObject(jsonString, decoder: decoder) {
                   continuation.yield(entry)
                 }
 
@@ -549,46 +464,46 @@ private struct JSONStreamParser {
 
       // Track brackets outside of strings
       switch char {
-      case "[":
-        seenArrayStart = true
-        bracketDepth += 1
-        // Don't include array brackets in objects
-        if bracketDepth > 1 {
-          currentObject.append(char)
-        }
-
-      case "{":
-        bracketDepth += 1
-        currentObject.append(char)
-
-      case "}":
-        currentObject.append(char)
-        bracketDepth -= 1
-
-        // If we're back to array level (depth 1), we have a complete object
-        if bracketDepth == 1 && seenArrayStart {
-          let trimmed = currentObject.trimmingCharacters(in: .whitespacesAndNewlines)
-          if !trimmed.isEmpty {
-            completeObjects.append(trimmed)
+        case "[":
+          seenArrayStart = true
+          bracketDepth += 1
+          // Don't include array brackets in objects
+          if bracketDepth > 1 {
+            currentObject.append(char)
           }
-          currentObject = ""
-        }
 
-      case "]":
-        bracketDepth -= 1
-        // Don't include array brackets in objects
-        if bracketDepth > 0 {
+        case "{":
+          bracketDepth += 1
           currentObject.append(char)
-        }
 
-      default:
-        // Only accumulate if we're inside an object
-        if bracketDepth > 1 || (bracketDepth == 1 && !seenArrayStart) {
+        case "}":
           currentObject.append(char)
-        } else if bracketDepth == 1 && seenArrayStart && !char.isWhitespace && char != "," {
-          // Start of a new object
-          currentObject.append(char)
-        }
+          bracketDepth -= 1
+
+          // If we're back to array level (depth 1), we have a complete object
+          if bracketDepth == 1 && seenArrayStart {
+            let trimmed = currentObject.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+              completeObjects.append(trimmed)
+            }
+            currentObject = ""
+          }
+
+        case "]":
+          bracketDepth -= 1
+          // Don't include array brackets in objects
+          if bracketDepth > 0 {
+            currentObject.append(char)
+          }
+
+        default:
+          // Only accumulate if we're inside an object
+          if bracketDepth > 1 || (bracketDepth == 1 && !seenArrayStart) {
+            currentObject.append(char)
+          } else if bracketDepth == 1 && seenArrayStart && !char.isWhitespace && char != "," {
+            // Start of a new object
+            currentObject.append(char)
+          }
       }
     }
 
@@ -676,100 +591,45 @@ private extension LogCollector {
     }
   }
 
-  /// Collects logs for a specific subsystem in JSON format using streaming.
-  ///
-  /// Streams JSON output and parses objects incrementally, eliminating buffer size limits
-  /// and enabling progress reporting during long-running log collection.
-  ///
-  /// - Parameter subsystem: The subsystem identifier.
-  /// - Returns: Array of parsed log entries.
-  /// - Throws: An error if log collection fails.
-  func collectLogsForSubsystem(_ subsystem: String) async throws -> [LogEntry] {
-    // If we have a test data source, use the old approach
-    if let dataSource = dataSource {
-      let output = try await dataSource.fetchJSONLogs(subsystem: subsystem)
-      return parseJSONLogOutput(output, subsystem: subsystem)
-    }
 
-    let levelPredicate = includeDebug ? "--info --debug" : "--info"
-
-    let arguments =
-      [
-        "show",
-        "--style", "json",
-        "--last", timeInterval,
-      ] + levelPredicate.components(separatedBy: " ") + [
-        "--predicate", "subsystem == \"\(subsystem)\"",
-      ]
-
-    debugLogger?("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
-
-    do {
-      let result = try await Subprocess.run(
-        .path(FilePath("/usr/bin/log")),
-        arguments: Arguments(arguments),
-        error: .discarded
-      ) { execution, outputSequence in
-        return try await parseJSONStream(outputSequence.lines(), subsystem: subsystem)
-      }
-
-      if case .exited(let code) = result.terminationStatus, code != 0 {
-        debugLogger?("log command returned non-zero exit code: \(code) for \(subsystem)")
-      }
-
-      return result.value
-    } catch {
-      errorLogger?("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
-      throw error
-    }
-  }
-
-  /// Parses JSON log entries from a line-by-line stream.
-  ///
-  /// Uses `JSONStreamParser` to detect complete JSON objects as they arrive,
-  /// parses them immediately, and applies filters during parsing for efficiency.
-  ///
-  /// - Parameters:
-  ///   - lines: Async sequence of lines from the log output.
-  ///   - subsystem: The subsystem identifier for these logs.
-  /// - Returns: Array of parsed and filtered log entries.
-  /// - Throws: An error if streaming fails.
-  func parseJSONStream(
-    _ lines: AsyncBufferSequence.LineSequence<UTF8>,
-    subsystem: String
-  ) async throws -> [LogEntry] {
-    var parser = JSONStreamParser()
-    var entries: [LogEntry] = []
-    var totalParsed = 0
-
-    for try await line in lines {
-      let completeObjects = parser.processLine(line)
-
-      for jsonString in completeObjects {
-        totalParsed += 1
-
-        // Parse individual JSON object
-        if let entry = parseJSONObject(jsonString, subsystem: subsystem) {
-          entries.append(entry)
-        }
-
-        // Report progress every 100 parsed objects
-        if totalParsed % 100 == 0 {
-          progressLogger?(entries.count, subsystem)
-        }
-      }
-    }
-
-    // Handle any remaining partial object (shouldn't happen with valid JSON)
-    if let remaining = parser.finalize() {
-      debugLogger?("Warning: Incomplete JSON object at end of stream: \(remaining.prefix(100))...")
-    }
-
-    // Final progress report
-    progressLogger?(entries.count, subsystem)
-    debugLogger?("Parsed \(entries.count) entries from \(totalParsed) JSON objects for \(subsystem)")
-
-    return entries
-  }
 }
 
+extension Formatter {
+
+  nonisolated(unsafe) static let rawFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZZZZZ"
+    return formatter
+  }()
+
+
+  nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    // This options is the default (can be omitted but but I prefer to make it explicit)
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+  }()
+
+  nonisolated(unsafe) static let iso8601withFractionalSeconds: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withTimeZone]
+    return formatter
+  }()
+}
+
+// Custom date decoding strategy
+extension JSONDecoder.DateDecodingStrategy {
+  static let customISO8601Cascade = custom {
+    let container = try $0.singleValueContainer()
+    let string = try container.decode(String.self)
+    if let date =
+      Formatter.rawFormatter.date(from: string)
+      ?? Formatter.iso8601withFractionalSeconds.date(from: string)
+      ?? Formatter.iso8601.date(from: string)
+    {
+      return date
+    }
+    throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(string)")
+  }
+}
