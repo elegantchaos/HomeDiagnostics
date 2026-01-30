@@ -8,15 +8,15 @@ import Foundation
 public struct LogAnalyzer {
   /// The log entries to be analyzed.
   public let stream: AsyncThrowingStream<LogEntry, Error>
-
+  
   /// Creates a new log analyzer to analyze entries from the given stream.
   ///
   /// - Parameter stream: An async stream of log entries.
   public init(stream: AsyncThrowingStream<LogEntry, Error>) {
     self.stream = stream
   }
-
-
+  
+  
   /// Performs statistical analysis by consuming a stream of log entries.
   ///
   /// Iterates the async stream, updating counts and UUID naming incrementally,
@@ -24,47 +24,79 @@ public struct LogAnalyzer {
   ///
   /// - Returns: Analysis results containing counts and categorizations.
   public func analyzeStream() async throws -> LogAnalysis {
-    var uuidNamer = UUIDNamer()
-
-    var allEntries: [LogEntry] = []
-    var totalCount = 0
-    var errorCount = 0
-    var faultCount = 0
-    var warningCount = 0
-    var subsystemCounts: [String: Int] = [:]
-
-    for try await entry in stream {
-      // Extract names as we go
-      uuidNamer.extractNames(from: entry.message)
-
-      // Accumulate
-      allEntries.append(entry)
-      totalCount += 1
-      subsystemCounts[entry.subsystem, default: 0] += 1
-
-      switch entry.level {
-      case .error: errorCount += 1
-      case .fault: faultCount += 1
-      case .warning: warningCount += 1
-      default: break
+    let batchSize = 500
+    var batch: [LogEntry] = []
+    var batchTasks: [Task<(UUIDNamer, [LogEntry], Int, Int, Int, Int, [String: Int]), Never>] = []
+    
+    func processBatch(_ entries: [LogEntry]) -> Task<(UUIDNamer, [LogEntry], Int, Int, Int, Int, [String: Int]), Never> {
+      Task {
+        var uuidNamer = UUIDNamer()
+        var allEntries: [LogEntry] = []
+        var totalCount = 0
+        var errorCount = 0
+        var faultCount = 0
+        var warningCount = 0
+        var subsystemCounts: [String: Int] = [:]
+        for entry in entries {
+          uuidNamer.extractNames(from: entry.message)
+          allEntries.append(entry)
+          totalCount += 1
+          subsystemCounts[entry.subsystem, default: 0] += 1
+          switch entry.level {
+            case .error: errorCount += 1
+            case .fault: faultCount += 1
+            case .warning: warningCount += 1
+            default: break
+          }
+        }
+        return (uuidNamer, allEntries, totalCount, errorCount, faultCount, warningCount, subsystemCounts)
       }
     }
-
-    // Associate home names after collecting all messages
-    uuidNamer.associateHomeNames()
-
-    let problematicEntries = allEntries.filter { $0.isProblematic }
-
+    
+    for try await entry in stream {
+      batch.append(entry)
+      if batch.count == batchSize {
+        batchTasks.append(processBatch(batch))
+        batch = []
+      }
+    }
+    if !batch.isEmpty {
+      batchTasks.append(processBatch(batch))
+    }
+    
+    var mergedUUIDNamer = UUIDNamer()
+    var mergedAllEntries: [LogEntry] = []
+    var mergedTotalCount = 0
+    var mergedErrorCount = 0
+    var mergedFaultCount = 0
+    var mergedWarningCount = 0
+    var mergedSubsystemCounts: [String: Int] = [:]
+    
+    for task in batchTasks {
+      let (uuidNamer, allEntries, totalCount, errorCount, faultCount, warningCount, subsystemCounts) = await task.value
+      mergedUUIDNamer.merge(with: uuidNamer)
+      mergedAllEntries.append(contentsOf: allEntries)
+      mergedTotalCount += totalCount
+      mergedErrorCount += errorCount
+      mergedFaultCount += faultCount
+      mergedWarningCount += warningCount
+      for (subsystem, count) in subsystemCounts {
+        mergedSubsystemCounts[subsystem, default: 0] += count
+      }
+    }
+    
+    mergedUUIDNamer.associateHomeNames()
+    let problematicEntries = mergedAllEntries.filter { $0.isProblematic }
     return LogAnalysis(
-      totalEntries: totalCount,
-      errorCount: errorCount,
-      faultCount: faultCount,
-      warningCount: warningCount,
+      totalEntries: mergedTotalCount,
+      errorCount: mergedErrorCount,
+      faultCount: mergedFaultCount,
+      warningCount: mergedWarningCount,
       problematicCount: problematicEntries.count,
-      subsystemCounts: subsystemCounts,
+      subsystemCounts: mergedSubsystemCounts,
       problematicEntries: problematicEntries,
-      allEntries: allEntries,
-      uuidNamer: uuidNamer
+      allEntries: mergedAllEntries,
+      uuidNamer: mergedUUIDNamer
     )
   }
 }

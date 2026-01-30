@@ -6,16 +6,16 @@ import Foundation
 public enum NameType: String, Sendable, Comparable {
   /// A HomeKit home.
   case home = "Home"
-
+  
   /// A HomeKit device or accessory.
   case device = "Device"
-
+  
   /// A HomeKit action set (scene).
   case actionSet = "Action Set"
-
+  
   /// Unable to categorize the entity type.
   case unknown = "Unknown"
-
+  
   /// Compares two name types for sorting.
   ///
   /// Orders types as: home, device, actionSet, unknown.
@@ -27,7 +27,7 @@ public enum NameType: String, Sendable, Comparable {
   public static func < (lhs: NameType, rhs: NameType) -> Bool {
     let order: [NameType] = [.home, .device, .actionSet, .unknown]
     guard let lhsIndex = order.firstIndex(of: lhs),
-      let rhsIndex = order.firstIndex(of: rhs)
+          let rhsIndex = order.firstIndex(of: rhs)
     else {
       return false
     }
@@ -42,10 +42,10 @@ public enum NameType: String, Sendable, Comparable {
 public struct NamedEntity: Sendable, Hashable {
   /// The human-readable name.
   public let name: String
-
+  
   /// The type of entity this name represents.
   public let type: NameType
-
+  
   /// Creates a new named entity.
   ///
   /// - Parameters:
@@ -71,39 +71,39 @@ public struct UUIDNamer: Sendable {
   /// Multiple named entities may exist for a single UUID if it appears in
   /// different contexts throughout the logs.
   private var uuidToEntities: [String: Set<NamedEntity>]
-
+  
   /// Set of home names seen in path patterns.
   ///
   /// Extracted from path-based patterns where the first component is the
   /// home name. Used as fallback if direct extraction patterns don't appear.
   private var seenHomeNames: Set<String>
-
+  
   /// Mapping from device/action set UUID to home name.
   ///
   /// Temporarily tracks which home name each device was seen with in path
   /// patterns. After home names are associated with UUIDs, this is converted
   /// to entityToHomeUUID mappings.
   private var entityToHomeName: [String: String]
-
+  
   /// Mapping from device/action set UUID to home UUID.
   ///
   /// Tracks which home each device or action set belongs to, extracted
   /// from path patterns and kHomeUUID fields. Used to organize output
   /// by home.
   private var entityToHomeUUID: [String: String]
-
+  
   /// Mapping from home spiID to internal ID.
   ///
   /// HomeKit uses two UUIDs per home: an internal ID (used in device paths)
   /// and a spiID (used in "found homes" lists). This tracks the relationship
   /// between them.
   private var homeSpiIDToInternalID: [String: String]
-
+  
   /// Mapping from UUID to Matter ID.
   ///
   /// Tracks Matter IDs for devices/homes when detected in logs.
   private var uuidToMatterID: [String: String]
-
+  
   /// Creates a new UUID namer with empty mappings.
   public init() {
     self.uuidToEntities = [:]
@@ -113,7 +113,7 @@ public struct UUIDNamer: Sendable {
     self.homeSpiIDToInternalID = [:]
     self.uuidToMatterID = [:]
   }
-
+  
   /// Extracts UUID-name associations from a log entry message.
   ///
   /// Scans the message for multiple pattern types:
@@ -131,7 +131,7 @@ public struct UUIDNamer: Sendable {
     extractHomeFromHMDHomePattern(from: message)
     extractHomeFromMatterSnapshot(from: message)
   }
-
+  
   /// Second-pass extraction: associates home names with home UUIDs.
   ///
   /// After initial extraction, resolves any remaining home name associations.
@@ -152,7 +152,7 @@ public struct UUIDNamer: Sendable {
           }
         }
       }
-
+      
       // If internal ID has a name but spiID doesn't, copy it
       if let internalEntities = uuidToEntities[internalID], !internalEntities.isEmpty {
         if uuidToEntities[spiID] == nil || uuidToEntities[spiID]!.isEmpty {
@@ -162,22 +162,22 @@ public struct UUIDNamer: Sendable {
         }
       }
     }
-
+    
     // Fallback heuristic: for unnamed home UUIDs, try alphabetical matching
     // This only runs if we have unnamed homes after direct extraction
     let unnamedHomeUUIDs =
-      uuidToEntities
+    uuidToEntities
       .filter { $0.value.isEmpty }
       .map { $0.key }
       .sorted()
-
+    
     // Find home names that haven't been associated yet
     let usedNames = Set(
       uuidToEntities.values.flatMap { entities in
         entities.filter { $0.type == .home }.map { $0.name }
       })
     let unusedHomeNames = seenHomeNames.subtracting(usedNames).sorted()
-
+    
     // Only use alphabetical matching if counts match (very uncertain heuristic)
     if unnamedHomeUUIDs.count == unusedHomeNames.count && !unnamedHomeUUIDs.isEmpty {
       var homeNameToUUID: [String: String] = [:]
@@ -185,7 +185,7 @@ public struct UUIDNamer: Sendable {
         addName(homeName, for: uuid, type: .home)
         homeNameToUUID[homeName] = uuid
       }
-
+      
       // Resolve entity-to-home mappings for these fallback names
       for (entityUUID, homeName) in entityToHomeName {
         if let homeUUID = homeNameToUUID[homeName] {
@@ -195,7 +195,7 @@ public struct UUIDNamer: Sendable {
         }
       }
     }
-
+    
     // Resolve any remaining entities using spiID mappings
     for (entityUUID, homeUUID) in entityToHomeUUID {
       // If entity points to a spiID, convert to internal ID
@@ -204,7 +204,7 @@ public struct UUIDNamer: Sendable {
       }
     }
   }
-
+  
   /// Returns the display name for a UUID, handling ambiguity.
   ///
   /// Generates a display name by combining all discovered names with the
@@ -221,10 +221,10 @@ public struct UUIDNamer: Sendable {
     guard let entities = uuidToEntities[uuid.uppercased()], !entities.isEmpty else {
       return nil
     }
-
+    
     let sortedNames = entities.map { $0.name }.sorted()
     let prefix = String(uuid.prefix(8))
-
+    
     if sortedNames.count == 1 {
       // Single name: "Garage Camera-9FEA624C"
       return "\(sortedNames[0])-\(prefix)"
@@ -233,7 +233,7 @@ public struct UUIDNamer: Sendable {
       return "\(sortedNames.joined(separator: "/"))-\(prefix)"
     }
   }
-
+  
   /// Substitutes all UUIDs in a message with their display names.
   ///
   /// Searches the message for UUID patterns (8-4-4-4-12 hex format) and
@@ -244,11 +244,11 @@ public struct UUIDNamer: Sendable {
   /// - Returns: Message with UUIDs replaced by display names where available.
   public func substitute(in message: String) -> String {
     var result = message
-
+    
     // UUID pattern: 8-4-4-4-12 format
     let uuidPattern =
-      /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/
-
+    /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/
+    
     // Process matches in reverse to maintain indices
     for match in message.matches(of: uuidPattern).reversed() {
       let uuid = String(match.0)
@@ -257,10 +257,10 @@ public struct UUIDNamer: Sendable {
         result.replaceSubrange(range, with: displayName)
       }
     }
-
+    
     return result
   }
-
+  
   /// Returns all UUIDs that have been assigned names, grouped by type.
   ///
   /// Returns an array of tuples containing UUID, named entities, and primary type.
@@ -285,7 +285,7 @@ public struct UUIDNamer: Sendable {
         return lhs.uuid < rhs.uuid
       }
   }
-
+  
   /// Returns all UUIDs organized by their home.
   ///
   /// Groups devices and action sets under their respective home UUIDs.
@@ -307,22 +307,22 @@ public struct UUIDNamer: Sendable {
         }
         .map { $0.key }
     )
-
+    
     // Build mapping of home UUID to child entities
     var homeToEntities: [String: [String]] = [:]
     var unknownHomeEntities: [String] = []
-
+    
     for (entityUUID, entities) in uuidToEntities {
       // Skip homes themselves
       if entities.contains(where: { $0.type == .home }) {
         continue
       }
-
+      
       // Skip entities without names
       if entities.isEmpty {
         continue
       }
-
+      
       // Find which home this entity belongs to
       if let homeUUID = entityToHomeUUID[entityUUID], homeUUIDs.contains(homeUUID) {
         homeToEntities[homeUUID, default: []].append(entityUUID)
@@ -330,21 +330,21 @@ public struct UUIDNamer: Sendable {
         unknownHomeEntities.append(entityUUID)
       }
     }
-
+    
     // Sort all arrays
     for key in homeToEntities.keys {
       homeToEntities[key]?.sort()
     }
     unknownHomeEntities.sort()
-
+    
     // Get standalone homes (homes without children)
     let standaloneHomes = homeUUIDs.sorted().filter { homeUUID in
       homeToEntities[homeUUID] == nil || homeToEntities[homeUUID]!.isEmpty
     }
-
+    
     return (homeToEntities, standaloneHomes, unknownHomeEntities)
   }
-
+  
   /// Returns the entities for a given UUID.
   ///
   /// - Parameter uuid: The UUID to look up (case-insensitive).
@@ -352,7 +352,7 @@ public struct UUIDNamer: Sendable {
   public func entities(for uuid: String) -> Set<NamedEntity> {
     return uuidToEntities[uuid.uppercased()] ?? []
   }
-
+  
   /// Returns the Matter ID for a given UUID, if available.
   ///
   /// - Parameter uuid: The UUID to look up (case-insensitive).
@@ -360,7 +360,7 @@ public struct UUIDNamer: Sendable {
   public func matterID(for uuid: String) -> String? {
     return uuidToMatterID[uuid.uppercased()]
   }
-
+  
   /// Returns the internal home ID for a given spiID, if available.
   ///
   /// HomeKit uses two UUIDs per home. This method converts a spiID
@@ -371,7 +371,7 @@ public struct UUIDNamer: Sendable {
   public func internalHomeID(for spiID: String) -> String? {
     return homeSpiIDToInternalID[spiID.uppercased()]
   }
-
+  
   /// Adds a named entity for a UUID to the mapping.
   ///
   /// UUIDs are normalized to uppercase for case-insensitive matching.
@@ -388,22 +388,22 @@ public struct UUIDNamer: Sendable {
   private mutating func addName(_ name: String, for uuid: String, type: NameType) {
     let normalizedUUID = uuid.uppercased()
     let trimmedName = name.trimmingCharacters(in: .whitespaces)
-
+    
     // Skip empty names
     guard !trimmedName.isEmpty else { return }
-
+    
     // Skip names that look like technical identifiers
     guard isValidHumanReadableName(trimmedName) else { return }
-
+    
     let entity = NamedEntity(name: trimmedName, type: type)
-
+    
     if uuidToEntities[normalizedUUID] != nil {
       uuidToEntities[normalizedUUID]?.insert(entity)
     } else {
       uuidToEntities[normalizedUUID] = [entity]
     }
   }
-
+  
   /// Checks if a name appears to be human-readable.
   ///
   /// Rejects names that look like:
@@ -417,35 +417,35 @@ public struct UUIDNamer: Sendable {
   private func isValidHumanReadableName(_ name: String) -> Bool {
     // Reject UUID patterns
     let uuidPattern =
-      /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/
+    /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/
     if name.contains(uuidPattern) {
       return false
     }
-
+    
     // Reject pure integers
     if Int(name) != nil {
       return false
     }
-
+    
     // Reject pure hexadecimal (no spaces, all hex chars)
     let hexPattern = /^[0-9A-Fa-f]+$/
     if name.count > 6 && name.contains(hexPattern) {
       return false
     }
-
+    
     // Reject mixed alphanumeric that looks like a hash
     // (all alphanumeric, no spaces, mix of letters and numbers, length > 8)
     let alphanumericOnly = name.allSatisfy { $0.isLetter || $0.isNumber }
     let hasLetters = name.contains(where: { $0.isLetter })
     let hasNumbers = name.contains(where: { $0.isNumber })
-
+    
     if alphanumericOnly && hasLetters && hasNumbers && name.count > 8 {
       return false
     }
-
+    
     return true
   }
-
+  
   /// Registers a UUID without a name for tracking purposes.
   ///
   /// Used when we encounter a UUID that we want to track but don't yet
@@ -457,6 +457,39 @@ public struct UUIDNamer: Sendable {
     let normalizedUUID = uuid.uppercased()
     if uuidToEntities[normalizedUUID] == nil {
       uuidToEntities[normalizedUUID] = []
+    }
+  }
+  
+  /// Merges another UUIDNamer into this one, combining all mappings and sets.
+  ///
+  /// Used for parallel batch processing, where each batch produces a local UUIDNamer.
+  /// After merging, run associateHomeNames() once on the final result.
+  public mutating func merge(with other: UUIDNamer) {
+    // Merge uuidToEntities
+    for (uuid, entities) in other.uuidToEntities {
+      if let existing = self.uuidToEntities[uuid] {
+        self.uuidToEntities[uuid] = existing.union(entities)
+      } else {
+        self.uuidToEntities[uuid] = entities
+      }
+    }
+    // Merge seenHomeNames
+    self.seenHomeNames.formUnion(other.seenHomeNames)
+    // Merge entityToHomeName
+    for (uuid, name) in other.entityToHomeName {
+      self.entityToHomeName[uuid] = name
+    }
+    // Merge entityToHomeUUID
+    for (uuid, homeUUID) in other.entityToHomeUUID {
+      self.entityToHomeUUID[uuid] = homeUUID
+    }
+    // Merge homeSpiIDToInternalID
+    for (spiID, internalID) in other.homeSpiIDToInternalID {
+      self.homeSpiIDToInternalID[spiID] = internalID
+    }
+    // Merge uuidToMatterID
+    for (uuid, matterID) in other.uuidToMatterID {
+      self.uuidToMatterID[uuid] = matterID
     }
   }
 }
@@ -477,24 +510,24 @@ private extension UUIDNamer {
   mutating func extractPathBasedNames(from message: String) {
     // Pattern: [Home/Device/UUID]
     let pattern =
-      /\[([^\/\]]+)\/([^\/\]]+)\/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\]/
-
+    /\[([^\/\]]+)\/([^\/\]]+)\/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\]/
+    
     for match in message.matches(of: pattern) {
       let homeName = String(match.1)
       let deviceName = String(match.2)
       let uuid = String(match.3)
-
+      
       // Add device name (only the final non-UUID part)
       addName(deviceName, for: uuid, type: .device)
-
+      
       // Track home name for later association with home UUIDs
       seenHomeNames.insert(homeName)
-
+      
       // Track which home this device belongs to (by name, will be resolved to UUID later)
       entityToHomeName[uuid.uppercased()] = homeName
     }
   }
-
+  
   /// Extracts names from action set structured data.
   ///
   /// Looks for patterns in messages containing "Add action set finished":
@@ -509,23 +542,23 @@ private extension UUIDNamer {
   mutating func extractActionSetNames(from message: String) {
     // Only process messages that contain action set data
     guard message.contains("Add action set finished") else { return }
-
+    
     // Extract kActionSetName
     let namePattern = /kActionSetName\s*=\s*"([^"]+)"/
     let actionSetName = message.firstMatch(of: namePattern).map { String($0.1) }
-
+    
     // Extract kActionSetUUID
     let actionSetUUIDPattern =
-      /kActionSetUUID\s*=\s*"([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})"/
+    /kActionSetUUID\s*=\s*"([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})"/
     if let actionSetMatch = message.firstMatch(of: actionSetUUIDPattern) {
       let uuid = String(actionSetMatch.1)
       if let name = actionSetName {
         addName(name, for: uuid, type: .actionSet)
       }
-
+      
       // Extract kHomeUUID and associate this action set with the home
       let homeUUIDPattern =
-        /kHomeUUID\s*=\s*"([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})"/
+      /kHomeUUID\s*=\s*"([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})"/
       if let homeMatch = message.firstMatch(of: homeUUIDPattern) {
         let homeUUID = String(homeMatch.1)
         registerUUID(homeUUID)
@@ -533,7 +566,7 @@ private extension UUIDNamer {
       }
     }
   }
-
+  
   /// Extracts UUIDs from home list patterns.
   ///
   /// Matches patterns like:
@@ -546,7 +579,7 @@ private extension UUIDNamer {
   mutating func extractHomeUUIDs(from message: String) {
     // Pattern: found homes [UUID1, UUID2, ...]
     let pattern = /found homes \[([^\]]+)\]/
-
+    
     if let match = message.firstMatch(of: pattern) {
       let uuidList = String(match.1)
       for uuid in uuidList.split(separator: ",") {
@@ -555,7 +588,7 @@ private extension UUIDNamer {
       }
     }
   }
-
+  
   /// Extracts home information from HMDHome object description patterns.
   ///
   /// Matches patterns like:
@@ -570,27 +603,27 @@ private extension UUIDNamer {
   mutating func extractHomeFromHMDHomePattern(from message: String) {
     // Pattern: <HMDHome, ID = UUID1, spiID = UUID2, NM = Name>
     let pattern =
-      /<HMDHome, ID = ([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}), spiID = ([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}), NM = ([^>]+)>/
-
+    /<HMDHome, ID = ([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}), spiID = ([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}), NM = ([^>]+)>/
+    
     for match in message.matches(of: pattern) {
       let internalID = String(match.1)
       let spiID = String(match.2)
       let name = String(match.3)
-
+      
       // Add name to both UUIDs
       addName(name, for: internalID, type: .home)
       addName(name, for: spiID, type: .home)
-
+      
       // Track the spiID-to-internal ID relationship
       homeSpiIDToInternalID[spiID.uppercased()] = internalID.uppercased()
-
+      
       // Mark entities that belong to this home (by name) as belonging to internal ID
       for (entityUUID, homeName) in entityToHomeName where homeName == name {
         entityToHomeUUID[entityUUID] = internalID.uppercased()
       }
     }
   }
-
+  
   /// Extracts home information from Matter snapshot patterns.
   ///
   /// Matches patterns like:
@@ -603,15 +636,15 @@ private extension UUIDNamer {
   mutating func extractHomeFromMatterSnapshot(from message: String) {
     // Pattern: new matter snapshot for 'UUID', updateType:home(Name)
     let pattern =
-      /new matter snapshot for '([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})', updateType:home\(([^)]+)\)/
-
+    /new matter snapshot for '([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})', updateType:home\(([^)]+)\)/
+    
     for match in message.matches(of: pattern) {
       let uuid = String(match.1)
       let name = String(match.2)
-
+      
       // Add name to internal ID
       addName(name, for: uuid, type: .home)
-
+      
       // Associate entities with this home by name
       for (entityUUID, homeName) in entityToHomeName where homeName == name {
         entityToHomeUUID[entityUUID] = uuid.uppercased()

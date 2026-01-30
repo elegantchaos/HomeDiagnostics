@@ -7,7 +7,7 @@ import Testing
 
 @Suite("Analysis Tests")
 struct AnalysisTests {
-
+  
   /// Tests basic analysis statistics
   @Test("Analyze log entries correctly")
   func testBasicAnalysis() async throws {
@@ -28,16 +28,22 @@ struct AnalysisTests {
         timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .fault,
         message: "Fault 1"),
     ]
-
-    let analyzer = LogAnalyzer(entries: entries)
-    let analysis = analyzer.analyze()
-
+    
+    let stream = AsyncThrowingStream<LogEntry, Error> { continuation in
+      for entry in entries {
+        continuation.yield(entry)
+      }
+      continuation.finish()
+    }
+    let analyzer = LogAnalyzer(stream: stream)
+    let analysis = try await analyzer.analyzeStream()
+    
     #expect(analysis.totalEntries == 5)
     #expect(analysis.errorCount == 2)
     #expect(analysis.warningCount == 1)
     #expect(analysis.faultCount == 1)
   }
-
+  
   /// Tests problematic entry detection
   @Test("Detect problematic entries correctly")
   func testProblematicDetection() async throws {
@@ -64,13 +70,19 @@ struct AnalysisTests {
         timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
         message: "Normal message"),
     ]
-
-    let analyzer = LogAnalyzer(entries: entries)
-    let analysis = analyzer.analyze()
-
+    
+    let stream = AsyncThrowingStream<LogEntry, Error> { continuation in
+      for entry in entries {
+        continuation.yield(entry)
+      }
+      continuation.finish()
+    }
+    let analyzer = LogAnalyzer(stream: stream)
+    let analysis = try await analyzer.analyzeStream()
+    
     #expect(analysis.problematicCount == 6)  // All except "Normal message"
   }
-
+  
   /// Tests subsystem counting
   @Test("Count entries per subsystem")
   func testSubsystemCounting() async throws {
@@ -94,23 +106,35 @@ struct AnalysisTests {
         timestamp: Date(), subsystem: "com.apple.homed", process: "homed", level: .info,
         message: "Message 6"),
     ]
-
-    let analyzer = LogAnalyzer(entries: entries)
-    let analysis = analyzer.analyze()
-
+    
+    let stream = AsyncThrowingStream<LogEntry, Error> { continuation in
+      for entry in entries {
+        continuation.yield(entry)
+      }
+      continuation.finish()
+    }
+    let analyzer = LogAnalyzer(stream: stream)
+    let analysis = try await analyzer.analyzeStream()
+    
     #expect(analysis.subsystemCounts["com.apple.HomeKit"] == 3)
     #expect(analysis.subsystemCounts["com.apple.Home"] == 1)
     #expect(analysis.subsystemCounts["com.apple.homed"] == 2)
   }
-
+  
   /// Tests empty entry list analysis
   @Test("Analyze empty entry list")
   func testEmptyAnalysis() async throws {
     let entries: [LogEntry] = []
-
-    let analyzer = LogAnalyzer(entries: entries)
-    let analysis = analyzer.analyze()
-
+    
+    let stream = AsyncThrowingStream<LogEntry, Error> { continuation in
+      for entry in entries {
+        continuation.yield(entry)
+      }
+      continuation.finish()
+    }
+    let analyzer = LogAnalyzer(stream: stream)
+    let analysis = try await analyzer.analyzeStream()
+    
     #expect(analysis.totalEntries == 0)
     #expect(analysis.errorCount == 0)
     #expect(analysis.warningCount == 0)
