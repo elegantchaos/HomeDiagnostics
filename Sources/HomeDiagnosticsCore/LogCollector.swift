@@ -37,6 +37,12 @@ public struct LogCollector {
   /// Callback for error logging (required to integrate with main executable logging).
   public let errorLogger: ((String) -> Void)?
 
+  /// Callback for progress reporting during log collection.
+  ///
+  /// Called periodically with the current entry count and subsystem name.
+  /// Used to show progress to the user during long-running operations.
+  public let progressLogger: ((Int, String) -> Void)?
+
   /// Creates a new log collector with specified configuration.
   ///
   /// - Parameters:
@@ -47,6 +53,7 @@ public struct LogCollector {
   ///   - dataSource: Optional data source for testing.
   ///   - debugLogger: Optional debug message callback.
   ///   - errorLogger: Optional error message callback.
+  ///   - progressLogger: Optional progress reporting callback.
   public init(
     timeInterval: String,
     includeDebug: Bool,
@@ -54,7 +61,8 @@ public struct LogCollector {
     errorsOnly: Bool = false,
     dataSource: LogDataSource? = nil,
     debugLogger: ((String) -> Void)? = nil,
-    errorLogger: ((String) -> Void)? = nil
+    errorLogger: ((String) -> Void)? = nil,
+    progressLogger: ((Int, String) -> Void)? = nil
   ) {
     self.timeInterval = timeInterval
     self.includeDebug = includeDebug
@@ -63,6 +71,7 @@ public struct LogCollector {
     self.dataSource = dataSource
     self.debugLogger = debugLogger
     self.errorLogger = errorLogger
+    self.progressLogger = progressLogger
   }
 
   /// Collects and parses logs from all Home and HomeKit subsystems.
@@ -254,14 +263,226 @@ public struct LogCollector {
       return text.localizedStandardContains(pattern)
     }
   }
+
+  /// Parses a single JSON object string into a LogEntry.
+  ///
+  /// Exposed as public for testing purposes only.
+  /// Applies filtering during parsing for efficiency.
+  ///
+  /// - Parameters:
+  ///   - jsonString: JSON object string (without array brackets).
+  ///   - subsystem: The subsystem identifier for this log entry.
+  /// - Returns: Parsed and filtered log entry, or `nil` if it should be filtered out or parsing fails.
+  public func parseJSONObject(_ jsonString: String, subsystem: String) -> LogEntry? {
+    guard let data = jsonString.data(using: .utf8) else {
+      debugLogger?("Failed to convert JSON string to UTF-8 data")
+      return nil
+    }
+
+    do {
+      guard let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        debugLogger?("Failed to parse JSON object")
+        return nil
+      }
+
+      guard let timestamp = jsonObject["timestamp"] as? String,
+        let messageType = jsonObject["messageType"] as? String,
+        let eventMessage = jsonObject["eventMessage"] as? String,
+        let processImagePath = jsonObject["processImagePath"] as? String
+      else {
+        return nil
+      }
+
+      // Parse timestamp (format: "2026-01-29 14:25:34.202233+0000")
+      let formatter = DateFormatter()
+      formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
+      formatter.locale = Locale(identifier: "en_US_POSIX")
+      formatter.timeZone = TimeZone(secondsFromGMT: 0)
+      guard let date = formatter.date(from: timestamp) else {
+        debugLogger?("Failed to parse timestamp: \(timestamp)")
+        return nil
+      }
+
+      // Extract process name from path
+      let processName = (processImagePath as NSString).lastPathComponent
+
+      // Map messageType to LogLevel
+      let level: LogLevel
+      switch messageType {
+      case "Debug":
+        level = .debug
+      case "Info":
+        level = .info
+      case "Default":
+        level = .info
+      case "Error":
+        level = .error
+      case "Fault":
+        level = .fault
+      case "Warning":
+        level = .warning
+      default:
+        level = .info
+      }
+
+      let entry = LogEntry(
+        timestamp: date,
+        subsystem: subsystem,
+        process: processName,
+        level: level,
+        message: eventMessage
+      )
+
+      // Apply filters
+      var shouldInclude = true
+
+      // Filter for errors only if requested
+      if errorsOnly {
+        shouldInclude = shouldInclude && (level == .error || level == .fault || level == .warning)
+      }
+
+      // Apply filter if provided
+      if let filter = filter {
+        shouldInclude = shouldInclude && matchesFilter(entry.message, pattern: filter)
+      }
+
+      return shouldInclude ? entry : nil
+    } catch {
+      debugLogger?("JSON parsing error: \(error)")
+      return nil
+    }
+  }
+}
+
+// MARK: - JSON Stream Parser
+
+/// State machine for parsing JSON objects from a line-by-line stream.
+///
+/// The unified logging system outputs JSON as a single array `[{...}, {...}, ...]`.
+/// This parser tracks bracket depth and string boundaries to detect complete JSON objects
+/// as they arrive in the stream, allowing incremental parsing without buffering the entire output.
+private struct JSONStreamParser {
+  /// Current bracket nesting depth (0 = outside all objects).
+  private var bracketDepth: Int = 0
+
+  /// Whether we're currently inside a string literal.
+  private var inString: Bool = false
+
+  /// Whether the previous character was an escape backslash.
+  private var escaped: Bool = false
+
+  /// Accumulated text for the current JSON object being parsed.
+  private var currentObject: String = ""
+
+  /// Whether we've encountered the opening array bracket.
+  private var seenArrayStart: Bool = false
+
+  /// Processes a single line from the stream and extracts any complete JSON objects.
+  ///
+  /// Tracks JSON structure across multiple lines, handling:
+  /// - The opening `[` of the array
+  /// - Complete JSON objects `{...}`
+  /// - String literals with escaped quotes
+  /// - Nested objects and arrays within log entries
+  ///
+  /// - Parameter line: A line from the log output stream.
+  /// - Returns: Array of complete JSON object strings ready for parsing. Empty if no complete objects yet.
+  mutating func processLine(_ line: String) -> [String] {
+    var completeObjects: [String] = []
+
+    for char in line {
+      // Handle escape sequences in strings
+      if escaped {
+        currentObject.append(char)
+        escaped = false
+        continue
+      }
+
+      if char == "\\" && inString {
+        currentObject.append(char)
+        escaped = true
+        continue
+      }
+
+      // Handle string boundaries
+      if char == "\"" {
+        inString.toggle()
+        currentObject.append(char)
+        continue
+      }
+
+      // If we're in a string, just accumulate
+      if inString {
+        currentObject.append(char)
+        continue
+      }
+
+      // Track brackets outside of strings
+      switch char {
+      case "[":
+        seenArrayStart = true
+        bracketDepth += 1
+        // Don't include array brackets in objects
+        if bracketDepth > 1 {
+          currentObject.append(char)
+        }
+
+      case "{":
+        bracketDepth += 1
+        currentObject.append(char)
+
+      case "}":
+        currentObject.append(char)
+        bracketDepth -= 1
+
+        // If we're back to array level (depth 1), we have a complete object
+        if bracketDepth == 1 && seenArrayStart {
+          let trimmed = currentObject.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !trimmed.isEmpty {
+            completeObjects.append(trimmed)
+          }
+          currentObject = ""
+        }
+
+      case "]":
+        bracketDepth -= 1
+        // Don't include array brackets in objects
+        if bracketDepth > 0 {
+          currentObject.append(char)
+        }
+
+      default:
+        // Only accumulate if we're inside an object
+        if bracketDepth > 1 || (bracketDepth == 1 && !seenArrayStart) {
+          currentObject.append(char)
+        } else if bracketDepth == 1 && seenArrayStart && !char.isWhitespace && char != "," {
+          // Start of a new object
+          currentObject.append(char)
+        }
+      }
+    }
+
+    return completeObjects
+  }
+
+  /// Finalizes parsing and returns any remaining partial object.
+  ///
+  /// Should be called after all lines have been processed to handle
+  /// edge cases where the stream ended mid-object.
+  ///
+  /// - Returns: The remaining partial object, or `nil` if parsing completed cleanly.
+  mutating func finalize() -> String? {
+    let trimmed = currentObject.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
 }
 
 // MARK: - Private Helpers
 
 private extension LogCollector {
-  /// Collects raw logs for a specific subsystem in syslog format.
+  /// Collects raw logs for a specific subsystem in syslog format using streaming.
   ///
-  /// Used by `collectRawLogs()` to fetch unformatted log output.
+  /// Streams output line-by-line instead of buffering, eliminating memory limits.
   ///
   /// - Parameter subsystem: The subsystem identifier.
   /// - Returns: Raw syslog-formatted output.
@@ -284,83 +505,140 @@ private extension LogCollector {
       let result = try await Subprocess.run(
         .path(FilePath("/usr/bin/log")),
         arguments: Arguments(arguments),
-        output: .string(limit: 100 * 1024 * 1024),
-        error: .string(limit: 1024 * 1024)
-      )
+        error: .discarded
+      ) { execution, outputSequence in
+        var collectedLines: [String] = []
+        var lineCount = 0
+
+        // Stream lines and apply filtering
+        for try await line in outputSequence.lines() {
+          lineCount += 1
+
+          // Report progress every 1000 lines
+          if lineCount % 1000 == 0 {
+            progressLogger?(lineCount, subsystem)
+          }
+
+          // Apply filter if present
+          if let filter = filter {
+            if matchesFilter(line, pattern: filter) {
+              collectedLines.append(line)
+            }
+          } else {
+            collectedLines.append(line)
+          }
+        }
+
+        // Final progress report
+        progressLogger?(lineCount, subsystem)
+
+        return collectedLines.joined(separator: "\n")
+      }
 
       if case .exited(let code) = result.terminationStatus, code != 0 {
         debugLogger?("log command returned non-zero exit code: \(code) for \(subsystem)")
-        if let errorOutput = result.standardError {
-          debugLogger?("Error output: \(errorOutput)")
-        }
       }
 
-      var output = result.standardOutput ?? ""
-
-      if let filter = filter {
-        let lines = output.components(separatedBy: .newlines)
-        let filteredLines = lines.filter { line in
-          matchesFilter(line, pattern: filter)
-        }
-        output = filteredLines.joined(separator: "\n")
-      }
-
-      return output
+      return result.value
     } catch {
       errorLogger?("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
       throw error
     }
   }
 
-  /// Collects logs for a specific subsystem in JSON format.
+  /// Collects logs for a specific subsystem in JSON format using streaming.
   ///
-  /// Uses either the injected data source (for testing) or executes the
-  /// system log command. Returns raw JSON output for parsing.
+  /// Streams JSON output and parses objects incrementally, eliminating buffer size limits
+  /// and enabling progress reporting during long-running log collection.
   ///
   /// - Parameter subsystem: The subsystem identifier.
-  /// - Returns: JSON-formatted log output.
+  /// - Returns: Array of parsed log entries.
   /// - Throws: An error if log collection fails.
   func collectLogsForSubsystem(_ subsystem: String) async throws -> [LogEntry] {
-    let output: String
+    // If we have a test data source, use the old approach
     if let dataSource = dataSource {
-      output = try await dataSource.fetchJSONLogs(subsystem: subsystem)
-    } else {
-      let levelPredicate = includeDebug ? "--info --debug" : "--info"
+      let output = try await dataSource.fetchJSONLogs(subsystem: subsystem)
+      return parseJSONLogOutput(output, subsystem: subsystem)
+    }
 
-      let arguments =
-        [
-          "show",
-          "--style", "json",
-          "--last", timeInterval,
-        ] + levelPredicate.components(separatedBy: " ") + [
-          "--predicate", "subsystem == \"\(subsystem)\"",
-        ]
+    let levelPredicate = includeDebug ? "--info --debug" : "--info"
 
-      debugLogger?("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
+    let arguments =
+      [
+        "show",
+        "--style", "json",
+        "--last", timeInterval,
+      ] + levelPredicate.components(separatedBy: " ") + [
+        "--predicate", "subsystem == \"\(subsystem)\"",
+      ]
 
-      do {
-        let result = try await Subprocess.run(
-          .path(FilePath("/usr/bin/log")),
-          arguments: Arguments(arguments),
-          output: .string(limit: 100 * 1024 * 1024),
-          error: .string(limit: 1024 * 1024)
-        )
+    debugLogger?("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
 
-        if case .exited(let code) = result.terminationStatus, code != 0 {
-          debugLogger?("log command returned non-zero exit code: \(code) for \(subsystem)")
-          if let errorOutput = result.standardError {
-            debugLogger?("Error output: \(errorOutput)")
-          }
+    do {
+      let result = try await Subprocess.run(
+        .path(FilePath("/usr/bin/log")),
+        arguments: Arguments(arguments),
+        error: .discarded
+      ) { execution, outputSequence in
+        return try await parseJSONStream(outputSequence.lines(), subsystem: subsystem)
+      }
+
+      if case .exited(let code) = result.terminationStatus, code != 0 {
+        debugLogger?("log command returned non-zero exit code: \(code) for \(subsystem)")
+      }
+
+      return result.value
+    } catch {
+      errorLogger?("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
+      throw error
+    }
+  }
+
+  /// Parses JSON log entries from a line-by-line stream.
+  ///
+  /// Uses `JSONStreamParser` to detect complete JSON objects as they arrive,
+  /// parses them immediately, and applies filters during parsing for efficiency.
+  ///
+  /// - Parameters:
+  ///   - lines: Async sequence of lines from the log output.
+  ///   - subsystem: The subsystem identifier for these logs.
+  /// - Returns: Array of parsed and filtered log entries.
+  /// - Throws: An error if streaming fails.
+  func parseJSONStream(
+    _ lines: AsyncBufferSequence.LineSequence<UTF8>,
+    subsystem: String
+  ) async throws -> [LogEntry] {
+    var parser = JSONStreamParser()
+    var entries: [LogEntry] = []
+    var totalParsed = 0
+
+    for try await line in lines {
+      let completeObjects = parser.processLine(line)
+
+      for jsonString in completeObjects {
+        totalParsed += 1
+
+        // Parse individual JSON object
+        if let entry = parseJSONObject(jsonString, subsystem: subsystem) {
+          entries.append(entry)
         }
 
-        output = result.standardOutput ?? ""
-        debugLogger?("Received \(output.count) characters from \(subsystem)")
-      } catch {
-        errorLogger?("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
-        throw error
+        // Report progress every 100 parsed objects
+        if totalParsed % 100 == 0 {
+          progressLogger?(entries.count, subsystem)
+        }
       }
     }
 
-    return parseJSONLogOutput(output, subsystem: subsystem)
+    // Handle any remaining partial object (shouldn't happen with valid JSON)
+    if let remaining = parser.finalize() {
+      debugLogger?("Warning: Incomplete JSON object at end of stream: \(remaining.prefix(100))...")
+    }
+
+    // Final progress report
+    progressLogger?(entries.count, subsystem)
+    debugLogger?("Parsed \(entries.count) entries from \(totalParsed) JSON objects for \(subsystem)")
+
+    return entries
   }
 }

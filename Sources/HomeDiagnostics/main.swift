@@ -159,7 +159,12 @@ struct HomeDiagnostics: AsyncParsableCommand {
         filter: filter,
         errorsOnly: errorsOnly,
         debugLogger: { debug($0) },
-        errorLogger: { printErr($0) }
+        errorLogger: { printErr($0) },
+        progressLogger: { count, subsystem in
+          // Always show progress (not just in verbose mode) since collection can take a long time
+          let shortName = subsystem.replacingOccurrences(of: "com.apple.", with: "")
+          printErr("  Collected \(count) entries from \(shortName)...")
+        }
       )
 
       if !raw {
