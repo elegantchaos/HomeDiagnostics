@@ -7,6 +7,82 @@ import Testing
 
 @Suite("UUID Namer Tests")
 struct UUIDNamerTests {
+  /// Tests that merging does not overwrite information if the same UUID or name appears in both namers.
+  @Test("Merging preserves all names for shared UUIDs")
+  func testMergePreservesAllNamesForSharedUUIDs() async throws {
+    var namer1 = UUIDNamer()
+    var namer2 = UUIDNamer()
+
+    // Both namers see the same UUID but with different names
+    namer1.extractNames(from: "[Home1/DeviceA/11111111-1111-1111-1111-111111111111] Test")
+    namer2.extractNames(from: "[Home2/DeviceB/11111111-1111-1111-1111-111111111111] Test")
+
+    // Merge namer2 into namer1
+    namer1.merge(with: namer2)
+
+    // The display name should include both names, sorted alphabetically
+    let displayName = namer1.displayName(for: "11111111-1111-1111-1111-111111111111")
+    let valid1 = displayName == "DeviceA/DeviceB-11111111"
+    let valid2 = displayName == "DeviceB/DeviceA-11111111"
+    #expect(valid1 || valid2)
+
+    // Check that both names are associated with the UUID, and that each NamedEntity.uuids contains the UUID
+    let entities = namer1.entities(for: "11111111-1111-1111-1111-111111111111")
+    #expect(entities.contains { $0.name == "DeviceA" && $0.uuids.contains("11111111-1111-1111-1111-111111111111".uppercased()) })
+    #expect(entities.contains { $0.name == "DeviceB" && $0.uuids.contains("11111111-1111-1111-1111-111111111111".uppercased()) })
+  }
+  /// Tests that merging two UUIDNamer instances preserves all data from both.
+  @Test("Merging preserves all data")
+  func testMergePreservesAllData() async throws {
+    var namer1 = UUIDNamer()
+    var namer2 = UUIDNamer()
+
+    // Populate namer1 with one device and home
+    namer1.extractNames(from: "[Home1/DeviceA/11111111-1111-1111-1111-111111111111] Test")
+    namer1.extractNames(from: "updateHomes(timeout:) found homes [AAAA1111-1111-1111-1111-111111111111]")
+
+    // Populate namer2 with a different device, home, and action set
+    namer2.extractNames(from: "[Home2/DeviceB/22222222-2222-2222-2222-222222222222] Test")
+    namer2.extractNames(from: "Add action set finished. { kActionSetName = \"Scene\"; kActionSetUUID = \"33333333-3333-3333-3333-333333333333\"; kHomeUUID = \"AAAA2222-2222-2222-2222-222222222222\"; }")
+    namer2.extractNames(from: "updateHomes(timeout:) found homes [AAAA2222-2222-2222-2222-222222222222]")
+
+    // Merge namer2 into namer1
+    namer1.merge(with: namer2)
+
+    // All device and action set names should be present
+    let deviceA = namer1.displayName(for: "11111111-1111-1111-1111-111111111111")
+    let deviceB = namer1.displayName(for: "22222222-2222-2222-2222-222222222222")
+    let actionSet = namer1.displayName(for: "33333333-3333-3333-3333-333333333333")
+    let home1 = namer1.displayName(for: "AAAA1111-1111-1111-1111-111111111111")
+    let home2 = namer1.displayName(for: "AAAA2222-2222-2222-2222-222222222222")
+
+    #expect(deviceA == "DeviceA-11111111")
+    #expect(deviceB == "DeviceB-22222222")
+    #expect(actionSet == "Scene-33333333")
+    #expect(home1 == nil)  // Only registered, no name
+    #expect(home2 == nil)  // Only registered, no name
+
+    // Check that the NamedEntity.uuids property is correct for each entity
+    let entitiesA = namer1.entities(for: "11111111-1111-1111-1111-111111111111")
+    #expect(entitiesA.contains { $0.name == "DeviceA" && $0.uuids.contains("11111111-1111-1111-1111-111111111111".uppercased()) })
+    let entitiesB = namer1.entities(for: "22222222-2222-2222-2222-222222222222")
+    #expect(entitiesB.contains { $0.name == "DeviceB" && $0.uuids.contains("22222222-2222-2222-2222-222222222222".uppercased()) })
+    let entitiesScene = namer1.entities(for: "33333333-3333-3333-3333-333333333333")
+    #expect(entitiesScene.contains { $0.name == "Scene" && $0.uuids.contains("33333333-3333-3333-3333-333333333333".uppercased()) })
+
+    // Now merge in the other direction and check again
+    var namer3 = UUIDNamer()
+    namer3.merge(with: namer1)
+    #expect(namer3.displayName(for: "11111111-1111-1111-1111-111111111111") == "DeviceA-11111111")
+    #expect(namer3.displayName(for: "22222222-2222-2222-2222-222222222222") == "DeviceB-22222222")
+    #expect(namer3.displayName(for: "33333333-3333-3333-3333-333333333333") == "Scene-33333333")
+    let entitiesA3 = namer3.entities(for: "11111111-1111-1111-1111-111111111111")
+    #expect(entitiesA3.contains { $0.name == "DeviceA" && $0.uuids.contains("11111111-1111-1111-1111-111111111111".uppercased()) })
+    let entitiesB3 = namer3.entities(for: "22222222-2222-2222-2222-222222222222")
+    #expect(entitiesB3.contains { $0.name == "DeviceB" && $0.uuids.contains("22222222-2222-2222-2222-222222222222".uppercased()) })
+    let entitiesScene3 = namer3.entities(for: "33333333-3333-3333-3333-333333333333")
+    #expect(entitiesScene3.contains { $0.name == "Scene" && $0.uuids.contains("33333333-3333-3333-3333-333333333333".uppercased()) })
+  }
 
   /// Tests path-based UUID extraction: [Home/Device/UUID]
   @Test("Extract names from path-based patterns")
@@ -481,5 +557,3 @@ struct UUIDNamerTests {
     #expect(unknownHomeEntities.isEmpty)
   }
 }
-
-

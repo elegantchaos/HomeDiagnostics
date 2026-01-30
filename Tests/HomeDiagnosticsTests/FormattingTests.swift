@@ -8,6 +8,59 @@ import Testing
 @Suite("Formatting Tests")
 struct FormattingTests {
 
+    /// Tests that the UUID naming summary appears for logs with named UUIDs
+    @Test("Output includes UUIDNamer summary for known patterns")
+    func testOutputUUIDNamingSummaryForNamedUUIDs() async throws {
+        // Prepare sample log entries with extractable names
+        let entries = [
+            LogEntry(
+                timestamp: Date(),
+                subsystem: "com.apple.HomeKit",
+                process: "homed",
+                level: .error,
+                message: "[Bank Street/Lamp/11112222-3333-4444-5555-666677778888] Device error"
+            ),
+            LogEntry(
+                timestamp: Date(),
+                subsystem: "com.apple.HomeKit",
+                process: "homed",
+                level: .info,
+                message: "[Plantation Road/Camera/9999AAAA-BBBB-CCCC-DDDD-EEEEFFFF0000] Motion detected"
+            )
+        ]
+        // Simulate the analyzer's UUIDNamer extraction on each log entry
+        var uuidNamer = UUIDNamer()
+        for entry in entries {
+            uuidNamer.extractNames(from: entry.message)
+        }
+        uuidNamer.associateHomeNames()
+        let analysis = LogAnalysis(
+            totalEntries: entries.count,
+            errorCount: 1,
+            faultCount: 0,
+            warningCount: 0,
+            problematicCount: 1,
+            subsystemCounts: ["com.apple.HomeKit": entries.count],
+            problematicEntries: entries.filter { $0.isProblematic },
+            allEntries: entries,
+            uuidNamer: uuidNamer
+        )
+        let formatter = OutputFormatter(
+            analysis: analysis,
+            showSummary: false,
+            deduplicate: false,
+            errorsOnly: false
+        )
+        let output = formatter.format()
+        // Assert that the summary is present and contains friendly home/device names
+        #expect(output.localizedStandardContains("UUID NAMING SUMMARY"))
+        #expect(output.localizedStandardContains("Bank Street"))
+        #expect(output.localizedStandardContains("Lamp"))
+        #expect(output.localizedStandardContains("Plantation Road"))
+        #expect(output.localizedStandardContains("Camera"))
+    }
+
+
   // ...existing tests...
 
   /// Tests output-layer filtering with filter and errorsOnly jointly
