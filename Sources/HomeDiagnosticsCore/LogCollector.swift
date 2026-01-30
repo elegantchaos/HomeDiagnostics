@@ -96,6 +96,24 @@ public struct LogCollector: Sendable {
     self.progressLogger = progressLogger
   }
 
+  func makeEntryDecoder() -> JSONDecoder {
+    let decoder = JSONDecoder()
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZZZZZ"
+    decoder.dateDecodingStrategy = JSONDecoder.DateDecodingStrategy.custom {
+      let container = try $0.singleValueContainer()
+      let string = try container.decode(String.self)
+      if let date = formatter.date(from: string)
+      {
+        return date
+      }
+      throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(string)")
+    }
+    
+    return decoder
+  }
+  
   /// Collects and parses logs from all Home and HomeKit subsystems.
   ///
   /// Queries com.apple.Home, com.apple.HomeKit, and com.apple.homed subsystems,
@@ -189,9 +207,7 @@ public struct LogCollector: Sendable {
       return []
     }
 
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .customISO8601Cascade
-
+    let decoder = makeEntryDecoder()
     do {
       let entries = try decoder.decode(RawLogEntries.self, from: data).entries
       return entries.map { LogEntry($0) }
@@ -347,9 +363,7 @@ public struct LogCollector: Sendable {
 
           debugLogger?("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
 
-          let decoder = JSONDecoder()
-          decoder.dateDecodingStrategy = .customISO8601Cascade
-
+          let decoder = makeEntryDecoder()
           let result = try await Subprocess.run(
             .path(FilePath("/usr/bin/log")),
             arguments: Arguments(arguments),
@@ -592,44 +606,4 @@ private extension LogCollector {
   }
 
 
-}
-
-extension Formatter {
-
-  nonisolated(unsafe) static let rawFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZZZZZ"
-    return formatter
-  }()
-
-
-  nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    // This options is the default (can be omitted but but I prefer to make it explicit)
-    formatter.formatOptions = [.withInternetDateTime]
-    return formatter
-  }()
-
-  nonisolated(unsafe) static let iso8601withFractionalSeconds: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withTimeZone]
-    return formatter
-  }()
-}
-
-// Custom date decoding strategy
-extension JSONDecoder.DateDecodingStrategy {
-  static let customISO8601Cascade = custom {
-    let container = try $0.singleValueContainer()
-    let string = try container.decode(String.self)
-    if let date =
-      Formatter.rawFormatter.date(from: string)
-      ?? Formatter.iso8601withFractionalSeconds.date(from: string)
-      ?? Formatter.iso8601.date(from: string)
-    {
-      return date
-    }
-    throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(string)")
-  }
 }
