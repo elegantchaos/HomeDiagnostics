@@ -2,7 +2,7 @@
   {
     "timestamp": "2026-01-29 14:30:15.123456+0000",
     "messageType": "Error",
-    "eventMessage": "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Value Transition Control Characteristic value is not of type data: (null)",
+    "eventMessage": "[Home 1/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Value Transition Control Characteristic value is not of type data: (null)",
     "subsystem": "com.apple.HomeKit",
     "processImagePath": "/System/Library/PrivateFrameworks/HomeKit.framework/homed"
   },
