@@ -2,7 +2,6 @@ import ArgumentParser
 import Foundation
 import HomeDiagnosticsCore
 
-
 /// Command-line tool for diagnosing Apple Home and HomeKit issues.
 ///
 /// Collects and analyzes logs from the unified logging system, filtering and
@@ -56,6 +55,11 @@ struct HomeDiagnostics: AsyncParsableCommand {
   /// Whether to show only errors, faults, and warnings.
   @Flag(name: .long, help: "Show only errors, faults, and warnings (filter out info/debug)")
   var errorsOnly: Bool = false
+
+
+  /// Maximum number of log entries to read from each log (nil = unlimited)
+  @Option(name: .long, help: "Limit the number of log entries to read from each log (default: unlimited)")
+  var entries: Int?
 
   /// Whether to disable UUID name substitution.
   @Flag(name: .long, help: "Disable UUID name substitution (show raw UUIDs)")
@@ -115,6 +119,7 @@ struct HomeDiagnostics: AsyncParsableCommand {
       let collector = LogCollector(
         timeInterval: timeInterval,
         includeDebug: detailed,
+        entryLimit: entries,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
         progressLogger: { count, subsystem in

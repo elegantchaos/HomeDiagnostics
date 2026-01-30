@@ -38,6 +38,8 @@ public struct LogCollector: Sendable {
   /// Whether to include debug-level logs in collection.
   public let includeDebug: Bool
 
+  /// Maximum number of log entries to read from each log (nil = unlimited)
+  public let entryLimit: Int?
 
   /// Optional data source for dependency injection during testing.
   ///
@@ -62,8 +64,7 @@ public struct LogCollector: Sendable {
   /// - Parameters:
   ///   - timeInterval: Time range string (e.g., "14d", "6h").
   ///   - includeDebug: Whether to include debug-level logs.
-  ///   - filter: Optional text or regex pattern to filter messages.
-  ///   - errorsOnly: Whether to show only errors, faults, and warnings.
+  ///   - entryLimit: Maximum number of log entries to read from each log (nil = unlimited).
   ///   - dataSource: Optional data source for testing.
   ///   - debugLogger: Optional debug message callback.
   ///   - errorLogger: Optional error message callback.
@@ -71,6 +72,7 @@ public struct LogCollector: Sendable {
   public init(
     timeInterval: String,
     includeDebug: Bool,
+    entryLimit: Int? = nil,
     dataSource: LogDataSource? = nil,
     debugLogger: (@Sendable (String) -> Void)? = nil,
     errorLogger: (@Sendable (String) -> Void)? = nil,
@@ -78,6 +80,7 @@ public struct LogCollector: Sendable {
   ) {
     self.timeInterval = timeInterval
     self.includeDebug = includeDebug
+    self.entryLimit = entryLimit
     self.dataSource = dataSource
     self.debugLogger = debugLogger
     self.errorLogger = errorLogger
@@ -242,8 +245,11 @@ public struct LogCollector: Sendable {
           if let dataSource = dataSource {
             let output = try await dataSource.fetchJSONLogs(subsystem: subsystem)
             let entries = try! parseJSONEntries(output, subsystem: subsystem)
+            var yielded = 0
             for entry in entries {
+              if let limit = entryLimit, yielded >= limit { break }
               continuation.yield(entry)
+              yielded += 1
             }
             continuation.finish()
             return
@@ -270,15 +276,18 @@ public struct LogCollector: Sendable {
           ) { execution, outputSequence in
             var parser = JSONStreamParser()
             var totalParsed = 0
+            var yielded = 0
 
-            for try await line in outputSequence.lines() {
+            outer: for try await line in outputSequence.lines() {
               let completeObjects = parser.processLine(line)
 
               for jsonString in completeObjects {
+                if let limit = entryLimit, yielded >= limit { break outer }
                 totalParsed += 1
 
                 if let entry = parseJSONEntryLoggingErrors(jsonString, decoder: decoder) {
                   continuation.yield(entry)
+                  yielded += 1
                 }
 
                 if totalParsed % 1000 == 0 {
