@@ -12,7 +12,7 @@ import Subprocess
 /// Queries multiple Home/HomeKit subsystems and aggregates their log entries.
 /// Supports filtering by text/regex patterns, error-only mode, and test data injection.
 /// Uses `/usr/bin/log` command for JSON-formatted output to ensure accurate metadata.
-public struct LogCollector {
+public struct LogCollector: Sendable {
   /// The time interval to look back (e.g., "14d", "6h").
   public let timeInterval: String
 
@@ -32,16 +32,16 @@ public struct LogCollector {
   public let dataSource: LogDataSource?
 
   /// Callback for debug logging (required to integrate with main executable logging).
-  public let debugLogger: ((String) -> Void)?
+  public let debugLogger: (@Sendable (String) -> Void)?
 
   /// Callback for error logging (required to integrate with main executable logging).
-  public let errorLogger: ((String) -> Void)?
+  public let errorLogger: (@Sendable (String) -> Void)?
 
   /// Callback for progress reporting during log collection.
   ///
   /// Called periodically with the current entry count and subsystem name.
   /// Used to show progress to the user during long-running operations.
-  public let progressLogger: ((Int, String) -> Void)?
+  public let progressLogger: (@Sendable (Int, String) -> Void)?
 
   /// Creates a new log collector with specified configuration.
   ///
@@ -60,9 +60,9 @@ public struct LogCollector {
     filter: String? = nil,
     errorsOnly: Bool = false,
     dataSource: LogDataSource? = nil,
-    debugLogger: ((String) -> Void)? = nil,
-    errorLogger: ((String) -> Void)? = nil,
-    progressLogger: ((Int, String) -> Void)? = nil
+    debugLogger: (@Sendable (String) -> Void)? = nil,
+    errorLogger: (@Sendable (String) -> Void)? = nil,
+    progressLogger: (@Sendable (Int, String) -> Void)? = nil
   ) {
     self.timeInterval = timeInterval
     self.includeDebug = includeDebug
@@ -82,30 +82,39 @@ public struct LogCollector {
   /// - Returns: Array of log entries sorted by timestamp.
   /// - Throws: An error if log collection fails (though individual subsystem failures are logged and skipped).
   public func collectLogs() async throws -> [LogEntry] {
-    var allEntries: [LogEntry] = []
+    var collected: [LogEntry] = []
+    let stream = streamLogs()
 
-    let subsystems = [
-      "com.apple.Home",
-      "com.apple.HomeKit",
-      "com.apple.homed",
-    ]
-
-    for subsystem in subsystems {
-      do {
-        debugLogger?("Collecting logs for subsystem: \(subsystem)")
-        let entries = try await collectLogsForSubsystem(subsystem)
-        debugLogger?("Collected \(entries.count) entries from \(subsystem)")
-        allEntries.append(contentsOf: entries)
-      } catch {
-        errorLogger?("[ERROR] Failed to collect logs for subsystem \(subsystem): \(error)")
-        // Continue with other subsystems even if one fails
+    // Consume the async throwing stream directly and accumulate via the actor to avoid races.
+    do {
+      for try await entry in stream {
+        await EntryAccumulator.shared.append(entry)
       }
+    } catch {
+      // Propagate any streaming error
+      throw error
     }
 
-    // Sort by timestamp
-    allEntries.sort { $0.timestamp < $1.timestamp }
+    // Drain accumulated entries and sort by timestamp
+    collected = await EntryAccumulator.shared.drain()
+    collected.sort { $0.timestamp < $1.timestamp }
 
-    return allEntries
+    return collected
+  }
+
+  private actor EntryAccumulator {
+    static let shared = EntryAccumulator()
+    private var entries: [LogEntry] = []
+
+    func append(_ entry: LogEntry) {
+      entries.append(entry)
+    }
+
+    func drain() -> [LogEntry] {
+      let result = entries
+      entries.removeAll(keepingCapacity: false)
+      return result
+    }
   }
 
   /// Collects raw, unparsed log output in syslog format.
@@ -350,6 +359,127 @@ public struct LogCollector {
     } catch {
       debugLogger?("JSON parsing error: \(error)")
       return nil
+    }
+  }
+
+  // MARK: - Public Streaming APIs
+
+  /// Streams log entries asynchronously for all subsystems.
+  ///
+  /// Provides continuous incremental parsing and filtering of logs as they are streamed,
+  /// reporting progress via callbacks. Useful for live or large log collections.
+  ///
+  /// - Parameter subsystems: Optional array of subsystem identifiers to query.
+  ///   If `nil`, defaults to Home/HomeKit subsystems.
+  /// - Returns: An async throwing stream of `LogEntry` objects.
+  public func streamLogs(subsystems: [String]? = nil) -> AsyncThrowingStream<LogEntry, Error> {
+    let subsystemsToUse = subsystems ?? [
+      "com.apple.Home",
+      "com.apple.HomeKit",
+      "com.apple.homed",
+    ]
+
+    return AsyncThrowingStream { continuation in
+      // Hold a reference to the running task so we can cancel on termination.
+      let task = Task.detached(priority: nil) { [subsystemsToUse] in
+        do {
+          for subsystem in subsystemsToUse {
+            for try await entry in streamLogsForSubsystem(subsystem) {
+              continuation.yield(entry)
+            }
+          }
+          continuation.finish()
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+
+      continuation.onTermination = { @Sendable _ in
+        task.cancel()
+      }
+    }
+  }
+
+  /// Streams log entries asynchronously for a specific subsystem.
+  ///
+  /// Runs the `/usr/bin/log` command with JSON output and incrementally parses log entries,
+  /// filtering as configured. Reports progress via callbacks.
+  ///
+  /// - Parameter subsystem: The subsystem identifier to query.
+  /// - Returns: An async throwing stream of `LogEntry` objects.
+  public func streamLogsForSubsystem(_ subsystem: String) -> AsyncThrowingStream<LogEntry, Error> {
+    AsyncThrowingStream { continuation in
+      let task = Task.detached(priority: nil) { [subsystem] in
+        do {
+          // If we have a test data source, simulate streaming by parsing all at once
+          if let dataSource = dataSource {
+            let output = try await dataSource.fetchJSONLogs(subsystem: subsystem)
+            let entries = parseJSONLogOutput(output, subsystem: subsystem)
+            for entry in entries {
+              continuation.yield(entry)
+            }
+            continuation.finish()
+            return
+          }
+
+          let levelPredicate = includeDebug ? "--info --debug" : "--info"
+
+          let arguments =
+            [
+              "show",
+              "--style", "json",
+              "--last", timeInterval,
+            ] + levelPredicate.components(separatedBy: " ") + [
+              "--predicate", "subsystem == \"\(subsystem)\"",
+            ]
+
+          debugLogger?("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
+
+          let result = try await Subprocess.run(
+            .path(FilePath("/usr/bin/log")),
+            arguments: Arguments(arguments),
+            error: .discarded
+          ) { execution, outputSequence in
+            var parser = JSONStreamParser()
+            var totalParsed = 0
+
+            for try await line in outputSequence.lines() {
+              let completeObjects = parser.processLine(line)
+
+              for jsonString in completeObjects {
+                totalParsed += 1
+
+                if let entry = parseJSONObject(jsonString, subsystem: subsystem) {
+                  continuation.yield(entry)
+                }
+
+                if totalParsed % 1000 == 0 {
+                  progressLogger?(totalParsed, subsystem)
+                }
+              }
+            }
+
+            if let remaining = parser.finalize() {
+              debugLogger?("Warning: Incomplete JSON object at end of stream: \(remaining.prefix(100))...")
+            }
+
+            progressLogger?(totalParsed, subsystem)
+          }
+
+          if case .exited(let code) = result.terminationStatus, code != 0 {
+            debugLogger?("log command returned non-zero exit code: \(code) for \(subsystem)")
+          }
+
+          continuation.finish()
+        } catch {
+          errorLogger?("[ERROR] Subprocess execution failed for \(subsystem): \(error)")
+          continuation.finish(throwing: error)
+        }
+      }
+
+      continuation.onTermination = { @Sendable _ in
+        task.cancel()
+      }
     }
   }
 }
@@ -642,3 +772,4 @@ private extension LogCollector {
     return entries
   }
 }
+

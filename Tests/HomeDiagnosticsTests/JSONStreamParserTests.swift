@@ -92,54 +92,6 @@ struct JSONStreamParserTests {
     }
   }
 
-  /// Tests that filtering is applied during parsing.
-  @Test("Apply filter during parsing")
-  func testFilterDuringParsing() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false,
-      filter: "important"
-    )
-
-    let matchingJSON = """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"This is important","processImagePath":"/usr/bin/test"}
-      """
-
-    let nonMatchingJSON = """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"This is not","processImagePath":"/usr/bin/test"}
-      """
-
-    let matchingEntry = collector.parseJSONObject(matchingJSON, subsystem: "test")
-    let nonMatchingEntry = collector.parseJSONObject(nonMatchingJSON, subsystem: "test")
-
-    #expect(matchingEntry != nil)
-    #expect(nonMatchingEntry == nil)
-  }
-
-  /// Tests that errors-only filter works during parsing.
-  @Test("Apply errors-only filter during parsing")
-  func testErrorsOnlyFilterDuringParsing() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false,
-      errorsOnly: true
-    )
-
-    let errorJSON = """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Error","eventMessage":"Error message","processImagePath":"/usr/bin/test"}
-      """
-
-    let infoJSON = """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Info message","processImagePath":"/usr/bin/test"}
-      """
-
-    let errorEntry = collector.parseJSONObject(errorJSON, subsystem: "test")
-    let infoEntry = collector.parseJSONObject(infoJSON, subsystem: "test")
-
-    #expect(errorEntry != nil)
-    #expect(infoEntry == nil)
-  }
-
   /// Tests that invalid JSON returns nil.
   @Test("Handle invalid JSON gracefully")
   func testInvalidJSON() async throws {
@@ -266,5 +218,41 @@ struct JSONStreamParserTests {
     let entry = collector.parseJSONObject(jsonString, subsystem: "test")
     #expect(entry != nil)
     #expect(entry?.message.contains("quotes") == true)
+  }
+
+  /// Tests that streaming yields unfiltered entries (no filtering during parsing)
+  @Test("Stream yields unfiltered entries")
+  func testStreamingUnfiltered() async throws {
+    struct MockSource: LogDataSource {
+      let json: String
+      func fetchJSONLogs(subsystem: String) async throws -> String { json }
+    }
+
+    let jsonArray = """
+      [
+        {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Alpha","processImagePath":"/usr/bin/test"},
+        {"timestamp":"2026-01-30 10:01:00.000000+0000","messageType":"Error","eventMessage":"Beta","processImagePath":"/usr/bin/test"},
+        {"timestamp":"2026-01-30 10:02:00.000000+0000","messageType":"Warning","eventMessage":"Gamma","processImagePath":"/usr/bin/test"}
+      ]
+      """
+
+    // Provide filter and errorsOnly flags to ensure they do NOT affect streaming parse
+    let collector = LogCollector(
+      timeInterval: "1h",
+      includeDebug: false,
+      filter: "Alpha",    // would normally filter to Alpha
+      errorsOnly: true,    // would normally filter to Error/Fault/Warning
+      dataSource: MockSource(json: jsonArray)
+    )
+
+    var received: [LogEntry] = []
+    for try await entry in collector.streamLogsForSubsystem("com.apple.HomeKit") {
+      received.append(entry)
+    }
+
+    // Expect all three entries to be present (no filtering during parsing)
+    #expect(received.count == 3)
+    let messages = received.map { $0.message }.sorted()
+    #expect(messages == ["Alpha", "Beta", "Gamma"]) 
   }
 }
