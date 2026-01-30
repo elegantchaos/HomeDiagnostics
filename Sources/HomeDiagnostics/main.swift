@@ -102,6 +102,10 @@ struct HomeDiagnostics: AsyncParsableCommand {
   @Flag(name: .long, help: "Show only errors, faults, and warnings (filter out info/debug)")
   var errorsOnly: Bool = false
 
+  /// Whether to disable UUID name substitution.
+  @Flag(name: .long, help: "Disable UUID name substitution (show raw UUIDs)")
+  var noNames: Bool = false
+
   /// Main entry point for the command execution.
   ///
   /// Validates arguments, configures log collection parameters, and runs the
@@ -195,7 +199,8 @@ struct HomeDiagnostics: AsyncParsableCommand {
         analysis: analysis,
         showSummary: summary,
         deduplicate: dedupe,
-        errorsOnly: errorsOnly
+        errorsOnly: errorsOnly,
+        substituteNames: !noNames
       )
 
       let outputText = formatter.format()

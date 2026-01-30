@@ -21,6 +21,12 @@ public struct OutputFormatter {
   /// be identical to the ALL ENTRIES section (which already filters to errors).
   public let errorsOnly: Bool
 
+  /// Whether to substitute UUIDs with human-readable names.
+  ///
+  /// When `false`, UUIDs are left as-is in the output and the UUID naming
+  /// summary section is omitted.
+  public let substituteNames: Bool
+
   /// Creates a new output formatter with specified options.
   ///
   /// - Parameters:
@@ -28,23 +34,26 @@ public struct OutputFormatter {
   ///   - showSummary: Whether to show only the summary.
   ///   - deduplicate: Whether to group duplicate entries.
   ///   - errorsOnly: Whether errors-only mode is active.
+  ///   - substituteNames: Whether to substitute UUIDs with names (default: true).
   public init(
     analysis: LogAnalysis,
     showSummary: Bool,
     deduplicate: Bool,
-    errorsOnly: Bool
+    errorsOnly: Bool,
+    substituteNames: Bool = true
   ) {
     self.analysis = analysis
     self.showSummary = showSummary
     self.deduplicate = deduplicate
     self.errorsOnly = errorsOnly
+    self.substituteNames = substituteNames
   }
 
   /// Generates formatted output from the analysis results.
   ///
   /// Produces a multi-section string with optional summary, problematic entries
-  /// section, and full log listing. Output includes ANSI color codes for
-  /// terminal display.
+  /// section, full log listing, and UUID naming summary. Output includes ANSI
+  /// color codes for terminal display.
   ///
   /// - Returns: Formatted string ready for terminal output.
   public func format() -> String {
@@ -64,6 +73,15 @@ public struct OutputFormatter {
 
     if !showSummary {
       output += formatAllEntries()
+      output += "\n\n"
+    }
+
+    // Add UUID naming summary at the end (only if substitution is enabled)
+    if substituteNames {
+      let namedUUIDs = analysis.uuidNamer.namedUUIDs()
+      if !namedUUIDs.isEmpty {
+        output += formatUUIDSummary(namedUUIDs: namedUUIDs)
+      }
     }
 
     return output
@@ -223,7 +241,8 @@ private extension OutputFormatter {
   ///
   /// Generates output showing all entries identified as problematic (errors,
   /// faults, or messages with failure keywords). Groups entries if deduplication
-  /// is enabled. Uses colored, bold text for messages.
+  /// is enabled. Uses colored, bold text for messages. Substitutes UUIDs with
+  /// human-readable names when available.
   ///
   /// - Returns: Formatted problematic entries section.
   func formatProblematicEntries() -> String {
@@ -242,8 +261,11 @@ private extension OutputFormatter {
         output += formatMetadataLineGrouped(group)
         output += "\n"
 
-        // Message in bold color
-        output += "\(color)\(TerminalColor.bold)\(group.example.message)\(TerminalColor.reset)\n\n"
+        // Message in bold color with UUID substitution
+        let message = substituteNames
+          ? analysis.uuidNamer.substitute(in: group.example.message)
+          : group.example.message
+        output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
       }
     } else {
       for entry in analysis.problematicEntries {
@@ -253,8 +275,11 @@ private extension OutputFormatter {
         output += formatMetadataLineEntry(entry)
         output += "\n"
 
-        // Message in bold color
-        output += "\(color)\(TerminalColor.bold)\(entry.message)\(TerminalColor.reset)\n\n"
+        // Message in bold color with UUID substitution
+        let message = substituteNames
+          ? analysis.uuidNamer.substitute(in: entry.message)
+          : entry.message
+        output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
       }
     }
 
@@ -265,7 +290,8 @@ private extension OutputFormatter {
   ///
   /// Generates output showing all log entries (or all entries of a filtered
   /// subset). Groups entries if deduplication is enabled. Uses colored, bold
-  /// text for error/warning messages.
+  /// text for error/warning messages. Substitutes UUIDs with human-readable
+  /// names when available.
   ///
   /// - Returns: Formatted complete entries section.
   func formatAllEntries() -> String {
@@ -284,12 +310,15 @@ private extension OutputFormatter {
         output += formatMetadataLineGrouped(group)
         output += "\n"
 
-        // Message with color if error/warning
+        // Message with color if error/warning, with UUID substitution
+        let message = substituteNames
+          ? analysis.uuidNamer.substitute(in: group.example.message)
+          : group.example.message
         if !color.isEmpty {
           output +=
-            "\(color)\(TerminalColor.bold)\(group.example.message)\(TerminalColor.reset)\n\n"
+            "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
         } else {
-          output += "\(group.example.message)\n\n"
+          output += "\(message)\n\n"
         }
       }
     } else {
@@ -300,13 +329,54 @@ private extension OutputFormatter {
         output += formatMetadataLineEntry(entry)
         output += "\n"
 
-        // Message with color if error/warning
+        // Message with color if error/warning, with UUID substitution
+        let message = substituteNames
+          ? analysis.uuidNamer.substitute(in: entry.message)
+          : entry.message
         if !color.isEmpty {
-          output += "\(color)\(TerminalColor.bold)\(entry.message)\(TerminalColor.reset)\n\n"
+          output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
         } else {
-          output += "\(entry.message)\n\n"
+          output += "\(message)\n\n"
         }
       }
+    }
+
+    return output
+  }
+
+  /// Formats the UUID naming summary section.
+  ///
+  /// Shows all UUIDs that were assigned names during log analysis, grouped
+  /// by type (Home, Device, Action Set, Unknown). Displays each UUID's first
+  /// 8 characters followed by names discovered for it.
+  ///
+  /// - Parameter namedUUIDs: Array of UUID-to-entities mappings with type information.
+  /// - Returns: Formatted UUID summary section.
+  func formatUUIDSummary(
+    namedUUIDs: [(uuid: String, entities: Set<NamedEntity>, primaryType: NameType)]
+  ) -> String {
+    var output = "UUID NAMING SUMMARY\n"
+    output += "===================\n\n"
+    output += "Discovered \(namedUUIDs.count) named UUID(s):\n\n"
+
+    // Group by type
+    var currentType: NameType? = nil
+
+    for (uuid, entities, primaryType) in namedUUIDs {
+      // Print type header when type changes
+      if currentType != primaryType {
+        if currentType != nil {
+          output += "\n"
+        }
+        output += "\(TerminalColor.bold)\(primaryType.rawValue)s:\(TerminalColor.reset)\n"
+        currentType = primaryType
+      }
+
+      let sortedNames = entities.map { $0.name }.sorted()
+      let prefix = String(uuid.prefix(8))
+      output += "  \(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
+      output += sortedNames.joined(separator: " / ")
+      output += "\n"
     }
 
     return output

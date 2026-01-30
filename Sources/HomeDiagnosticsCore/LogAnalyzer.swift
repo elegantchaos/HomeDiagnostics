@@ -20,10 +20,18 @@ public struct LogAnalyzer {
   ///
   /// Counts entries by severity level (error, fault, warning), identifies
   /// problematic entries (errors, faults, or messages with failure keywords),
-  /// and groups entries by subsystem.
+  /// groups entries by subsystem, and extracts UUID-to-name mappings from
+  /// log message patterns.
   ///
   /// - Returns: Analysis results containing counts and categorizations.
   public func analyze() -> LogAnalysis {
+    var uuidNamer = UUIDNamer()
+
+    // First pass: extract UUID names from all messages
+    for entry in entries {
+      uuidNamer.extractNames(from: entry.message)
+    }
+
     let totalCount = entries.count
     let errorCount = entries.filter { $0.level == .error }.count
     let faultCount = entries.filter { $0.level == .fault }.count
@@ -47,7 +55,8 @@ public struct LogAnalyzer {
       problematicCount: problematicCount,
       subsystemCounts: subsystemCounts,
       problematicEntries: problematicEntries,
-      allEntries: entries
+      allEntries: entries,
+      uuidNamer: uuidNamer
     )
   }
 }

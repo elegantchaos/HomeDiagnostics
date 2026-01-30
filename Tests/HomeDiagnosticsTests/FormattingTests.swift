@@ -23,7 +23,8 @@ struct FormattingTests {
       problematicCount: 0,
       subsystemCounts: [:],
       problematicEntries: [],
-      allEntries: []
+      allEntries: [],
+      uuidNamer: UUIDNamer()
     )
 
     let _ = OutputFormatter(
@@ -46,7 +47,8 @@ struct FormattingTests {
       problematicCount: 0,
       subsystemCounts: ["com.apple.HomeKit": 1],
       problematicEntries: [],
-      allEntries: [entry]
+      allEntries: [entry],
+      uuidNamer: UUIDNamer()
     )
 
     let formatterWithEntry = OutputFormatter(
@@ -77,7 +79,8 @@ struct FormattingTests {
       problematicCount: 0,
       subsystemCounts: ["com.apple.HomeKit": 1],
       problematicEntries: [],
-      allEntries: [entry]
+      allEntries: [entry],
+      uuidNamer: UUIDNamer()
     )
 
     let formatter = OutputFormatter(
@@ -109,7 +112,8 @@ struct FormattingTests {
       problematicCount: 0,
       subsystemCounts: ["com.apple.HomeKit": 1],
       problematicEntries: [],
-      allEntries: [entry]
+      allEntries: [entry],
+      uuidNamer: UUIDNamer()
     )
 
     let formatter = OutputFormatter(
@@ -148,7 +152,8 @@ struct FormattingTests {
       problematicCount: 3,
       subsystemCounts: ["com.apple.HomeKit": 3],
       problematicEntries: entries,
-      allEntries: entries
+      allEntries: entries,
+      uuidNamer: UUIDNamer()
     )
 
     let formatter = OutputFormatter(
@@ -183,7 +188,8 @@ struct FormattingTests {
       problematicCount: 1,
       subsystemCounts: ["com.apple.HomeKit": 1],
       problematicEntries: entries,
-      allEntries: entries
+      allEntries: entries,
+      uuidNamer: UUIDNamer()
     )
 
     let formatter = OutputFormatter(
@@ -197,5 +203,128 @@ struct FormattingTests {
 
     // Verify PROBLEMATIC ENTRIES section is not present
     #expect(!output.contains("PROBLEMATIC ENTRIES"))
+  }
+
+  /// Tests UUID summary section appears when names are discovered
+  @Test("UUID summary section shows discovered names")
+  func testUUIDSummarySection() async throws {
+    var namer = UUIDNamer()
+    namer.extractNames(
+      from:
+        "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message")
+
+    let entry = LogEntry(
+      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
+      message: "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message"
+    )
+
+    let analysis = LogAnalysis(
+      totalEntries: 1,
+      errorCount: 0,
+      faultCount: 0,
+      warningCount: 0,
+      problematicCount: 0,
+      subsystemCounts: ["com.apple.HomeKit": 1],
+      problematicEntries: [],
+      allEntries: [entry],
+      uuidNamer: namer
+    )
+
+    let formatter = OutputFormatter(
+      analysis: analysis,
+      showSummary: false,
+      deduplicate: false,
+      errorsOnly: false,
+      substituteNames: true
+    )
+
+    let output = formatter.format()
+
+    // Verify UUID summary section appears (now showing device name only)
+    #expect(output.contains("UUID NAMING SUMMARY"))
+    #expect(output.contains("4A8856A0..."))
+    #expect(output.contains("Hue color lamp"))
+  }
+
+  /// Tests UUID summary section is omitted when substituteNames is false
+  @Test("UUID summary section omitted with --no-names")
+  func testUUIDSummaryOmittedWithNoNames() async throws {
+    var namer = UUIDNamer()
+    namer.extractNames(
+      from:
+        "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message")
+
+    let entry = LogEntry(
+      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
+      message: "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message"
+    )
+
+    let analysis = LogAnalysis(
+      totalEntries: 1,
+      errorCount: 0,
+      faultCount: 0,
+      warningCount: 0,
+      problematicCount: 0,
+      subsystemCounts: ["com.apple.HomeKit": 1],
+      problematicEntries: [],
+      allEntries: [entry],
+      uuidNamer: namer
+    )
+
+    let formatter = OutputFormatter(
+      analysis: analysis,
+      showSummary: false,
+      deduplicate: false,
+      errorsOnly: false,
+      substituteNames: false
+    )
+
+    let output = formatter.format()
+
+    // Verify UUID summary section does NOT appear
+    #expect(!output.contains("UUID NAMING SUMMARY"))
+
+    // Verify the UUID is NOT substituted in the message
+    #expect(output.contains("4A8856A0-38E3-5AF4-AC52-8390FFE944A2"))
+  }
+
+  /// Tests UUID substitution works in messages when enabled
+  @Test("UUID substitution in messages when enabled")
+  func testUUIDSubstitutionEnabled() async throws {
+    var namer = UUIDNamer()
+    namer.extractNames(
+      from:
+        "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message")
+
+    let entry = LogEntry(
+      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
+      message: "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message"
+    )
+
+    let analysis = LogAnalysis(
+      totalEntries: 1,
+      errorCount: 0,
+      faultCount: 0,
+      warningCount: 0,
+      problematicCount: 0,
+      subsystemCounts: ["com.apple.HomeKit": 1],
+      problematicEntries: [],
+      allEntries: [entry],
+      uuidNamer: namer
+    )
+
+    let formatter = OutputFormatter(
+      analysis: analysis,
+      showSummary: false,
+      deduplicate: false,
+      errorsOnly: false,
+      substituteNames: true
+    )
+
+    let output = formatter.format()
+
+    // Verify the UUID IS substituted (now only using device name)
+    #expect(output.contains("Hue color lamp-4A8856A0"))
+    #expect(!output.contains("4A8856A0-38E3-5AF4-AC52-8390FFE944A2"))
   }
 }

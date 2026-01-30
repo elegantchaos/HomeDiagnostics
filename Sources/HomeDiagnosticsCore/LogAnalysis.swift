@@ -31,6 +31,12 @@ public struct LogAnalysis: Sendable {
   /// All log entries that were analyzed.
   public let allEntries: [LogEntry]
 
+  /// UUID-to-name mappings extracted from log entries.
+  ///
+  /// Contains associations between UUIDs found in logs and human-readable
+  /// names discovered through various patterns (path prefixes, action sets, etc.).
+  public let uuidNamer: UUIDNamer
+
   /// Creates a new log analysis result.
   ///
   /// - Parameters:
@@ -42,6 +48,7 @@ public struct LogAnalysis: Sendable {
   ///   - subsystemCounts: Counts by subsystem.
   ///   - problematicEntries: Entries identified as problematic.
   ///   - allEntries: All analyzed entries.
+  ///   - uuidNamer: UUID naming mappings extracted from logs.
   public init(
     totalEntries: Int,
     errorCount: Int,
@@ -50,7 +57,8 @@ public struct LogAnalysis: Sendable {
     problematicCount: Int,
     subsystemCounts: [String: Int],
     problematicEntries: [LogEntry],
-    allEntries: [LogEntry]
+    allEntries: [LogEntry],
+    uuidNamer: UUIDNamer
   ) {
     self.totalEntries = totalEntries
     self.errorCount = errorCount
@@ -60,6 +68,7 @@ public struct LogAnalysis: Sendable {
     self.subsystemCounts = subsystemCounts
     self.problematicEntries = problematicEntries
     self.allEntries = allEntries
+    self.uuidNamer = uuidNamer
   }
 }
 

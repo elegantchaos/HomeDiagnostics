@@ -1,0 +1,283 @@
+import Foundation
+import Testing
+
+@testable import HomeDiagnosticsCore
+
+// MARK: - UUID Namer Tests
+
+@Suite("UUID Namer Tests")
+struct UUIDNamerTests {
+
+  /// Tests path-based UUID extraction: [Home/Device/UUID]
+  @Test("Extract names from path-based patterns")
+  func testPathBasedExtraction() async throws {
+    var namer = UUIDNamer()
+    let message =
+      "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Active transition count value: (null) is not of type NSNumber"
+
+    namer.extractNames(from: message)
+
+    let displayName = namer.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
+    // Now only uses the device name (not Home/Device)
+    #expect(displayName == "Hue color lamp-4A8856A0")
+  }
+
+  /// Tests multiple path-based patterns in a single message
+  @Test("Extract multiple path-based names from same message")
+  func testMultiplePathBasedExtraction() async throws {
+    var namer = UUIDNamer()
+    let message =
+      "[Bank Street/Device1/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] connected to [Bank Street/Device2/CBD9ADE0-29ED-5945-A6A9-6E1750392F3D]"
+
+    namer.extractNames(from: message)
+
+    let name1 = namer.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
+    let name2 = namer.displayName(for: "CBD9ADE0-29ED-5945-A6A9-6E1750392F3D")
+    // Now only uses device names
+    #expect(name1 == "Device1-4A8856A0")
+    #expect(name2 == "Device2-CBD9ADE0")
+  }
+
+  /// Tests action set name extraction
+  @Test("Extract names from action set structured data")
+  func testActionSetExtraction() async throws {
+    var namer = UUIDNamer()
+    let message = """
+      [3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852] Add action set finished. Responding to clients with : {
+          kActionSetName = "Good Morning";
+          kActionSetType = HMActionSetTypeWakeUp;
+          kActionSetUUID = "8006AFD6-5739-53CB-8175-DA40FF2BFCD2";
+          kHomeUUID = "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852";
+      }
+      """
+
+    namer.extractNames(from: message)
+
+    let actionSetName = namer.displayName(for: "8006AFD6-5739-53CB-8175-DA40FF2BFCD2")
+    // Action set names should have the action set name only
+    #expect(actionSetName == "Good Morning-8006AFD6")
+
+    // Home UUID should be registered but may not have a name yet
+    let homeName = namer.displayName(for: "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852")
+    // Since it's only registered (no name), displayName returns nil
+    #expect(homeName == nil)
+  }
+
+  /// Tests home UUID list extraction
+  @Test("Extract UUIDs from home list patterns")
+  func testHomeListExtraction() async throws {
+    var namer = UUIDNamer()
+    let message =
+      "updateHomes(timeout:) found homes [3B23B284-673A-5FFF-A863-8F62C42711C0, 92759DC3-97B6-5A09-95CC-1070E16D9260]"
+
+    namer.extractNames(from: message)
+
+    // UUIDs should be registered but have no names
+    let name1 = namer.displayName(for: "3B23B284-673A-5FFF-A863-8F62C42711C0")
+    let name2 = namer.displayName(for: "92759DC3-97B6-5A09-95CC-1070E16D9260")
+
+    #expect(name1 == nil)
+    #expect(name2 == nil)
+  }
+
+  /// Tests ambiguity handling when a UUID has multiple names
+  @Test("Handle UUID with multiple names")
+  func testMultipleNamesForSameUUID() async throws {
+    var namer = UUIDNamer()
+
+    // Same UUID appears in different contexts
+    let message1 =
+      "[Bank Street/Living Room/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Error message"
+    let message2 =
+      "[Plantation Road/Bedroom/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Another error"
+
+    namer.extractNames(from: message1)
+    namer.extractNames(from: message2)
+
+    let displayName = namer.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
+
+    // Should show both device names, sorted alphabetically (now only device names, not home/device)
+    #expect(displayName == "Bedroom/Living Room-4A8856A0")
+  }
+
+  /// Tests case-insensitive UUID matching
+  @Test("UUID matching is case-insensitive")
+  func testCaseInsensitiveMatching() async throws {
+    var namer = UUIDNamer()
+    let message =
+      "[Bank Street/Device/4a8856a0-38e3-5af4-ac52-8390ffe944a2] Test message"
+
+    namer.extractNames(from: message)
+
+    // Try with uppercase - should work and use the prefix from the input UUID
+    let name1 = namer.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
+    // Try with lowercase - should work and use the prefix from the input UUID
+    let name2 = namer.displayName(for: "4a8856a0-38e3-5af4-ac52-8390ffe944a2")
+    // Try with mixed case - should work and use the prefix from the input UUID
+    let name3 = namer.displayName(for: "4A8856a0-38E3-5aF4-aC52-8390FfE944A2")
+
+    // All should return the same name (device only), just with different prefix casing
+    #expect(name1 == "Device-4A8856A0")
+    #expect(name2 == "Device-4a8856a0")
+    #expect(name3 == "Device-4A8856a0")
+  }
+
+  /// Tests UUID substitution in messages
+  @Test("Substitute UUIDs in messages")
+  func testUUIDSubstitution() async throws {
+    var namer = UUIDNamer()
+    let extractMessage =
+      "[Bank Street/Lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Configuration"
+
+    namer.extractNames(from: extractMessage)
+
+    let testMessage = "Device 4A8856A0-38E3-5AF4-AC52-8390FFE944A2 is unreachable"
+    let result = namer.substitute(in: testMessage)
+
+    #expect(result == "Device Lamp-4A8856A0 is unreachable")
+  }
+
+  /// Tests substitution with multiple UUIDs
+  @Test("Substitute multiple UUIDs in one message")
+  func testMultipleUUIDSubstitution() async throws {
+    var namer = UUIDNamer()
+
+    namer.extractNames(
+      from: "[Home1/Device1/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test")
+    namer.extractNames(
+      from: "[Home2/Device2/CBD9ADE0-29ED-5945-A6A9-6E1750392F3D] Test")
+
+    let testMessage =
+      "Connection from 4A8856A0-38E3-5AF4-AC52-8390FFE944A2 to CBD9ADE0-29ED-5945-A6A9-6E1750392F3D failed"
+    let result = namer.substitute(in: testMessage)
+
+    #expect(
+      result == "Connection from Device1-4A8856A0 to Device2-CBD9ADE0 failed"
+    )
+  }
+
+  /// Tests that unknown UUIDs are left unchanged
+  @Test("Unknown UUIDs remain unchanged in substitution")
+  func testUnknownUUIDsUnchanged() async throws {
+    let namer = UUIDNamer()
+
+    let testMessage = "Unknown device 4A8856A0-38E3-5AF4-AC52-8390FFE944A2"
+    let result = namer.substitute(in: testMessage)
+
+    // UUID should remain unchanged since no name was extracted
+    #expect(result == testMessage)
+  }
+
+  /// Tests extraction and substitution with real sample data
+  @Test("Extract and substitute with sample log data")
+  func testRealSampleData() async throws {
+    var namer = UUIDNamer()
+
+    // Real examples from sample_output.txt
+    let messages = [
+      "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Active transition count value: (null) is not of type NSNumber",
+      "[Bank Street/Corner Spot/949F68CF-5065-5F7E-8DBC-4D6BE20F2BD6] Ignoring Value Transition Control",
+      "[Plantation Road/Living Room/691505B0-F56B-5989-8EAF-6C721322655C] Value is not of expected type",
+    ]
+
+    for message in messages {
+      namer.extractNames(from: message)
+    }
+
+    // Test substitution
+    let testMessage =
+      "Error in 4A8856A0-38E3-5AF4-AC52-8390FFE944A2 and 949F68CF-5065-5F7E-8DBC-4D6BE20F2BD6"
+    let result = namer.substitute(in: testMessage)
+
+    #expect(
+      result
+        == "Error in Hue color lamp-4A8856A0 and Corner Spot-949F68CF"
+    )
+  }
+
+  /// Tests that empty names are not added
+  @Test("Empty names are ignored")
+  func testEmptyNamesIgnored() async throws {
+    var namer = UUIDNamer()
+    // Test with empty path components - the pattern uses [^/\]]+ which requires
+    // at least one character that's not / or ], so this won't match
+    let message1 = "[//4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test"
+    namer.extractNames(from: message1)
+
+    let displayName1 = namer.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
+    // Should be nil because the pattern requires non-empty home and device parts
+    #expect(displayName1 == nil)
+
+    // Test that actual empty trimmed names don't get added even if pattern matches
+    // In practice, the regex [^/\]]+ won't match empty strings, so this validates
+    // the pattern is working correctly
+  }
+
+  /// Tests combined extraction from multiple message types
+  @Test("Combined extraction from multiple pattern types")
+  func testCombinedExtraction() async throws {
+    var namer = UUIDNamer()
+
+    // Path-based
+    namer.extractNames(
+      from: "[Bank Street/Lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test")
+
+    // Action set
+    namer.extractNames(
+      from: """
+        Add action set finished. {
+            kActionSetName = "Morning";
+            kActionSetUUID = "CBD9ADE0-29ED-5945-A6A9-6E1750392F3D";
+        }
+        """)
+
+    // Home list
+    namer.extractNames(
+      from: "found homes [3B23B284-673A-5FFF-A863-8F62C42711C0]")
+
+    let name1 = namer.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
+    let name2 = namer.displayName(for: "CBD9ADE0-29ED-5945-A6A9-6E1750392F3D")
+    let name3 = namer.displayName(for: "3B23B284-673A-5FFF-A863-8F62C42711C0")
+
+    #expect(name1 == "Lamp-4A8856A0")
+    #expect(name2 == "Morning-CBD9ADE0")
+    #expect(name3 == nil)  // Only registered, no name
+  }
+
+  /// Tests that display name uses first 8 characters of UUID
+  @Test("Display name uses UUID prefix correctly")
+  func testUUIDPrefixLength() async throws {
+    var namer = UUIDNamer()
+    namer.extractNames(
+      from: "[Home/Device/12345678-1234-5678-9ABC-123456789ABC] Test")
+
+    let displayName = namer.displayName(for: "12345678-1234-5678-9ABC-123456789ABC")
+    #expect(displayName?.hasSuffix("-12345678") == true)
+    #expect(displayName?.count == "Device-12345678".count)
+  }
+
+  /// Tests that technical-looking names are filtered out
+  @Test("Filter out UUID-like and hash-like names")
+  func testNameFiltering() async throws {
+    var namer = UUIDNamer()
+
+    // These should all be rejected as non-human-readable
+    namer.extractNames(
+      from: "[Home/12345678-1234-5678-9ABC-123456789ABC/12345678-1234-5678-9ABC-123456789ABC] Test"
+    )  // UUID as device name
+    namer.extractNames(from: "[Home/12345/12345678-1234-5678-9ABC-123456789ABC] Test")  // Pure integer
+    namer.extractNames(from: "[Home/ABCDEF123456/12345678-1234-5678-9ABC-123456789ABC] Test")
+    // Hex hash
+    namer.extractNames(
+      from: "[Home/a1b2c3d4e5f6/12345678-1234-5678-9ABC-123456789ABC] Test")  // Alphanumeric hash
+
+    // This should be accepted as human-readable
+    namer.extractNames(
+      from: "[Bank Street/Living Room Lamp/12345678-1234-5678-9ABC-123456789ABC] Test")
+
+    let displayName = namer.displayName(for: "12345678-1234-5678-9ABC-123456789ABC")
+
+    // Should only have the valid human-readable name
+    #expect(displayName == "Living Room Lamp-12345678")
+  }
+}
