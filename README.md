@@ -112,7 +112,7 @@ home-diagnostics --days 7 --detailed --dedupe
 
 ### Developer Guides
 - **[Development Guide](Extras/Documentation/Development.md)** - Architecture, building, testing, and contributing
-- **[Engineering Principles](Extras/Documentation/Principles.md)** - Design patterns and coding standards
+- **[Engineering Principles](Extras/Guidelines/Principles.md)** - Design patterns and coding standards
 - 
 
 ## License
