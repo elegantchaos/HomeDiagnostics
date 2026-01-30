@@ -7,7 +7,7 @@ It may contain both an Xcode project, and additional code organized into local S
 
 The goal of these instructions is to keep contributions modern, safe, and consistent with the project's architecture and Apple platform expectations.
 
-For additional decision-making heuristics and engineering principles, see `Extras/Documentation/Principles Glossary.md`.
+For additional decision-making heuristics and engineering principles, see `Extras/Documentation/Principles.md`.
 
 ## Role & expectations
 
@@ -35,7 +35,7 @@ Act as an expert Swift engineer.
 - SwiftUI views should be backed by testable view models or other non-view logic types.
 - Use `@Observable` for shared state. Do not use `ObservableObject`.
 - Avoid UIKit/AppKit unless explicitly requested.
-- Only add third-party dependencies that are listed in `Extras/Documentation/Approved Dependencies.md`. Ask first before adding any other dependencies.
+- Only add third-party dependencies that are listed in `Extras/Documentation/Dependencies.md`. Ask first before adding any other dependencies.
 - Write cross-platform code where it does not add complexity.
 
 
@@ -133,7 +133,7 @@ When defining a protocol, the code should be arranged in the following order:
 
 ## General coding guidelines
 
-- Follow the principles in `Extras/Documentation/Principles Glossary.md`.
+- Follow the principles in `Extras/Documentation/Principles.md`.
 - Avoid duplication in code and tests.
 - Minimize repeated literals (strings, numbers).
 - Avoid private single-line var or func wrappers unless the wrapped code is complex or repeated, or the wrapper adds substantial clarity.
@@ -255,3 +255,13 @@ If SwiftData is configured to use CloudKit:
 - Suggest adding unit tests for old code if it is un-tested, or poorly covered.
 - Prefer unit tests over UI tests; write UI tests only when unit testing is not feasible.
 - Extract shared test helpers when it reduces repetition without obscuring intent.
+
+## Documentation
+
+- Maintain an up to date README.md
+- Keep the README short and factual.
+- Do not include any "marketing" style copy in the README.
+- Include the following sections: Overview, Quick Start, Documentation
+- Break out additional information from the README into extra markdown files in Extras/Documentation.
+- Some examples of additional sections that may be appropriate (depending on context): Requirements, Installation, Detailed Options, Output Reference, Usage Guide, Performance Guide, Development Guide, Engineering Principles
+- 

@@ -297,7 +297,7 @@ HomeDiagnostics/
 │   └── Documentation/                # Extended documentation
 │       ├── Examples.md               # Usage examples & output reference
 │       ├── Development.md            # This file
-│       └── Principles Glossary.md    # Engineering principles
+│       └── Principles.md             # Engineering principles
 │
 ├── Package.swift                     # Swift Package Manager manifest
 ├── README.md                         # Main documentation
@@ -464,7 +464,7 @@ When reviewing code:
 
 ### Engineering Principles
 
-See [Principles Glossary](Principles Glossary.md) for:
+See [Principles Glossary](Principles.md) for:
 - Code organization patterns
 - Error handling strategies
 - Testing philosophy
@@ -615,7 +615,7 @@ open Package.swift  # Opens in Xcode
 Contributions are welcome! Before contributing:
 
 1. Read this development guide
-2. Review the [Engineering Principles](Principles Glossary.md)
+2. Review the [Engineering Principles](Principles.md)
 3. Follow the Swift coding standards in `AGENTS.md`
 4. Ensure all tests pass
 
