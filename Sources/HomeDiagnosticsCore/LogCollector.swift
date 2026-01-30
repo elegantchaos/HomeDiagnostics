@@ -7,9 +7,6 @@ import Subprocess
   import SystemPackage
 #endif
 
-private struct RawLogEntries: Codable {
-  let entries: [RawLogEntry]
-}
 
 private struct RawLogEntry: Codable {
   let timestamp: Date
@@ -96,7 +93,7 @@ public struct LogCollector: Sendable {
     self.progressLogger = progressLogger
   }
 
-  func makeEntryDecoder() -> JSONDecoder {
+  public func makeEntryDecoder() -> JSONDecoder {
     let decoder = JSONDecoder()
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -164,7 +161,7 @@ public struct LogCollector: Sendable {
   public func parseJSONEntries(_ output: String, subsystem: String) throws -> [LogEntry] {
     let data = output.data(using: .utf8)!
     let decoder = makeEntryDecoder()
-    let entries = try decoder.decode(RawLogEntries.self, from: data).entries
+    let entries = try decoder.decode([RawLogEntry].self, from: data)
     return entries.compactMap { filteredEntry(LogEntry($0)) }
   }
 

@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-
 @testable import HomeDiagnosticsCore
 
 // MARK: - Filtering Tests
@@ -11,10 +10,7 @@ struct FilteringTests {
   /// Tests plain text filtering (case-insensitive)
   @Test("Filter with plain text (case-insensitive)")
   func testPlainTextFilter() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
 
     let testCases = [
       ("hue", "Contains Hue device", true),
@@ -32,10 +28,7 @@ struct FilteringTests {
   /// Tests regex filtering
   @Test("Filter with regex pattern")
   func testRegexFilter() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
 
     let testCases = [
       ("hue|philips", "Contains Hue device", true),
@@ -55,10 +48,7 @@ struct FilteringTests {
   /// Tests invalid regex fallback to plain text
   @Test("Invalid regex falls back to plain text search")
   func testInvalidRegexFallback() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
 
     // Invalid regex pattern (unbalanced bracket)
     let pattern = "[invalid"
@@ -111,13 +101,8 @@ struct FilteringTests {
       ]
       """
 
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false,
-      errorsOnly: true
-    )
-
-    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
+    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false, errorsOnly: true)
+    let entries = try parseEntries(jsonInput, subsystem: "com.apple.HomeKit", collector: collector)
 
     #expect(entries.count == 3)  // Error, Warning, Fault only
     #expect(entries[0].level == .error)
@@ -154,14 +139,8 @@ struct FilteringTests {
       ]
       """
 
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false,
-      filter: "hue",
-      errorsOnly: true
-    )
-
-    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
+    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false, filter: "hue", errorsOnly: true)
+    let entries = try parseEntries(jsonInput, subsystem: "com.apple.HomeKit", collector: collector)
 
     #expect(entries.count == 1)  // Only "Hue device error"
     #expect(entries[0].message == "Hue device error")

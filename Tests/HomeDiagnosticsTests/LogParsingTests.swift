@@ -11,10 +11,7 @@ struct LogParsingTests {
   /// Tests parsing valid JSON log output
   @Test("Parse valid JSON log entries")
   func testParseValidJSON() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
 
     let jsonInput = """
       [
@@ -40,10 +37,7 @@ struct LogParsingTests {
   /// Tests parsing multiple log entries with different types
   @Test("Parse multiple log entries with different message types")
   func testParseMultipleEntries() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
 
     let jsonInput = """
       [
@@ -82,10 +76,7 @@ struct LogParsingTests {
   /// Tests mapping messageType to LogLevel correctly
   @Test("Map messageType to LogLevel correctly")
   func testMessageTypeMapping() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
 
     let testCases: [(messageType: String, expectedLevel: LogLevel)] = [
       ("Debug", .debug),
@@ -118,41 +109,20 @@ struct LogParsingTests {
   /// Tests parsing empty JSON array
   @Test("Parse empty JSON array")
   func testParseEmptyJSON() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
-
-    let jsonInput = "[]"
-
-    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
-
+    let entries = try parseEntries("[]", subsystem: "com.apple.HomeKit")
     #expect(entries.isEmpty)
   }
 
   /// Tests parsing malformed JSON
   @Test("Parse malformed JSON returns empty array")
   func testParseMalformedJSON() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
-
-    let jsonInput = "{not valid json"
-
-    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
-
+    let entries = try parseEntries("{not valid json", subsystem: "com.apple.HomeKit")
     #expect(entries.isEmpty)
   }
 
   /// Tests parsing JSON with missing required fields
   @Test("Parse JSON with missing fields skips invalid entries")
   func testParseMissingFields() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
-
     let jsonInput = """
       [
         {
@@ -163,20 +133,13 @@ struct LogParsingTests {
         }
       ]
       """
-
-    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
-
+    let entries = try parseEntries(jsonInput, subsystem: "com.apple.HomeKit")
     #expect(entries.isEmpty)
   }
 
   /// Tests date parsing with correct timestamp format
   @Test("Parse timestamp correctly")
   func testTimestampParsing() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
-
     let jsonInput = """
       [
         {
@@ -188,34 +151,24 @@ struct LogParsingTests {
         }
       ]
       """
-
-    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
-
+    let entries = try parseEntries(jsonInput, subsystem: "com.apple.HomeKit")
     #expect(entries.count == 1)
-
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = TimeZone(secondsFromGMT: 0)
     let expectedDate = formatter.date(from: "2026-01-29 14:30:15.123456+0000")
-
     #expect(entries[0].timestamp == expectedDate)
   }
 
   /// Tests process name extraction from path
   @Test("Extract process name from path correctly")
   func testProcessNameExtraction() async throws {
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
-
     let testCases = [
       ("/usr/libexec/homed", "homed"),
       ("/Applications/Home.app/Contents/MacOS/Home", "Home"),
       ("/System/Library/PrivateFrameworks/HomeKit.framework/homed", "homed"),
     ]
-
     for (path, expectedName) in testCases {
       let jsonInput = """
         [
@@ -228,9 +181,7 @@ struct LogParsingTests {
           }
         ]
         """
-
-      let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
-
+      let entries = try parseEntries(jsonInput, subsystem: "com.apple.HomeKit")
       #expect(entries.count == 1)
       #expect(entries[0].process == expectedName)
     }

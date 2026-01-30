@@ -37,9 +37,12 @@ let package = Package(
       dependencies: [
         "HomeDiagnosticsCore"
       ],
+      exclude: [
+        "Resources/sample_output.txt"
+      ],
       resources: [
         .copy("Resources/sample_logs.json")
-      ]
+      ],
     ),
   ]
 )

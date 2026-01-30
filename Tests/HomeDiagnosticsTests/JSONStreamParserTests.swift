@@ -13,10 +13,7 @@ struct JSONStreamParserTests {
   /// Tests parsing complete JSON objects.
   @Test("Parse complete JSON objects")
   func testParseCompleteObjects() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     // Two complete JSON objects as they would appear after stream parsing
     let jsonObjects = [
@@ -46,10 +43,7 @@ struct JSONStreamParserTests {
   /// Tests parseJSONObject with valid JSON object string.
   @Test("Parse single JSON object")
   func testParseSingleJSONObject() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     let jsonString = """
       {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test message","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
@@ -68,10 +62,7 @@ struct JSONStreamParserTests {
   /// Tests parseJSONObject with different message types.
   @Test("Parse different log levels")
   func testParseLogLevels() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     let testCases: [(messageType: String, expectedLevel: LogLevel)] = [
       ("Debug", .debug),
@@ -96,10 +87,7 @@ struct JSONStreamParserTests {
   /// Tests that invalid JSON returns nil.
   @Test("Handle invalid JSON gracefully")
   func testInvalidJSON() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     let invalidJSON = """
       {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test"
@@ -114,10 +102,7 @@ struct JSONStreamParserTests {
   /// Tests that missing required fields returns nil.
   @Test("Handle missing fields")
   func testMissingFields() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     let missingTimestamp = """
       {"messageType":"Info","eventMessage":"Test","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
@@ -135,10 +120,7 @@ struct JSONStreamParserTests {
   /// Tests parsing timestamp format correctly.
   @Test("Parse timestamp format")
   func testTimestampParsing() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     let jsonString = """
       {"timestamp":"2026-01-30 14:25:34.202233+0000","messageType":"Info","eventMessage":"Test","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
@@ -166,10 +148,7 @@ struct JSONStreamParserTests {
   /// Tests extracting process name from full path.
   @Test("Extract process name from path")
   func testProcessNameExtraction() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     let testCases: [(path: String, expectedName: String)] = [
       ("/usr/bin/homed", "homed"),
@@ -191,10 +170,7 @@ struct JSONStreamParserTests {
   /// Tests that JSON with nested objects is handled correctly.
   @Test("Parse JSON with nested objects")
   func testNestedObjects() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     // Message field might contain JSON-like content
     let jsonString = """
@@ -210,10 +186,7 @@ struct JSONStreamParserTests {
   /// Tests that strings with escaped quotes are handled correctly.
   @Test("Parse strings with escaped quotes")
   func testEscapedQuotes() async throws {
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false)
 
     let jsonString = """
       {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Message with \\"quotes\\"","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
@@ -242,13 +215,7 @@ struct JSONStreamParserTests {
       """
 
     // Provide filter and errorsOnly flags to ensure they do NOT affect streaming parse
-    let collector = LogCollector(
-      timeInterval: "1h",
-      includeDebug: false,
-      filter: "Alpha",  // would normally filter to Alpha
-      errorsOnly: true,  // would normally filter to Error/Fault/Warning
-      dataSource: MockSource(json: jsonArray)
-    )
+    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false, filter: "Alpha", errorsOnly: true, dataSource: MockSource(json: jsonArray))
 
     var received: [LogEntry] = []
     for try await entry in collector.streamLogsForSubsystem("com.apple.HomeKit") {
