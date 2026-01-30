@@ -212,8 +212,7 @@ public struct LogCollector: Sendable {
 
     // Filter for errors only if requested
     if errorsOnly {
-      let level = entry.level
-      shouldInclude = shouldInclude && (level == .error || level == .fault || level == .warning)
+      shouldInclude = shouldInclude && entry.isProblematic
     }
 
     // Apply filter if provided

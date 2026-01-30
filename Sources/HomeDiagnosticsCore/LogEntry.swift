@@ -50,7 +50,7 @@ public struct LogEntry: Sendable {
   /// contains keywords indicating failure conditions (failed, timeout,
   /// unreachable, not responding).
   public var isProblematic: Bool {
-    level == .error || level == .fault
+    level == .error || level == .fault || level == .warning
       || message.localizedStandardContains("failed")
       || message.localizedStandardContains("timeout")
       || message.localizedStandardContains("unreachable")

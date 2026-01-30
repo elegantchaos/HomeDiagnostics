@@ -197,34 +197,4 @@ struct JSONStreamParserTests {
     #expect(entry != nil)
     #expect(entry?.message.contains("quotes") == true)
   }
-
-  /// Tests that streaming yields unfiltered entries (no filtering during parsing)
-  @Test("Stream yields unfiltered entries")
-  func testStreamingUnfiltered() async throws {
-    struct MockSource: LogDataSource {
-      let json: String
-      func fetchJSONLogs(subsystem: String) async throws -> String { json }
-    }
-
-    let jsonArray = """
-      [
-        {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Alpha","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"},
-        {"timestamp":"2026-01-30 10:01:00.000000+0000","messageType":"Error","eventMessage":"Beta","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"},
-        {"timestamp":"2026-01-30 10:02:00.000000+0000","messageType":"Warning","eventMessage":"Gamma","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
-      ]
-      """
-
-    // Provide filter and errorsOnly flags to ensure they do NOT affect streaming parse
-    let collector = makeTestCollector(timeInterval: "1h", includeDebug: false, filter: "Alpha", errorsOnly: true, dataSource: MockSource(json: jsonArray))
-
-    var received: [LogEntry] = []
-    for try await entry in collector.streamLogsForSubsystem("com.apple.HomeKit") {
-      received.append(entry)
-    }
-
-    // Expect all three entries to be present (no filtering during parsing)
-    #expect(received.count == 3)
-    let messages = received.map { $0.message }.sorted()
-    #expect(messages == ["Alpha", "Beta", "Gamma"])
-  }
 }

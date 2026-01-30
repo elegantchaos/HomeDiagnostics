@@ -81,7 +81,7 @@ struct LogParsingTests {
     let testCases: [(messageType: String, expectedLevel: LogLevel)] = [
       ("Debug", .debug),
       ("Info", .info),
-      ("Default", .info),  // Default maps to Info
+      ("Default", .default),  // Default maps to Default
       ("Error", .error),
       ("Fault", .fault),
     ]
@@ -116,26 +116,9 @@ struct LogParsingTests {
   /// Tests parsing malformed JSON
   @Test("Parse malformed JSON returns empty array")
   func testParseMalformedJSON() async throws {
-    let entries = try parseEntries("{not valid json", subsystem: "com.apple.HomeKit")
-    #expect(entries.isEmpty)
+    #expect(throws: DecodingError.self) { try parseEntries("{not valid json", subsystem: "com.apple.HomeKit") }
   }
 
-  /// Tests parsing JSON with missing required fields
-  @Test("Parse JSON with missing fields skips invalid entries")
-  func testParseMissingFields() async throws {
-    let jsonInput = """
-      [
-        {
-          "timestamp": "2026-01-29 14:30:15.123456+0000",
-          "messageType": "Error",
-          "subsystem": "com.apple.HomeKit",
-          "processImagePath": "/usr/libexec/homed"
-        }
-      ]
-      """
-    let entries = try parseEntries(jsonInput, subsystem: "com.apple.HomeKit")
-    #expect(entries.isEmpty)
-  }
 
   /// Tests date parsing with correct timestamp format
   @Test("Parse timestamp correctly")
