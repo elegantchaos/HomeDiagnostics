@@ -80,7 +80,7 @@ public struct OutputFormatter {
     if substituteNames {
       let namedUUIDs = analysis.uuidNamer.namedUUIDs()
       if !namedUUIDs.isEmpty {
-        output += formatUUIDSummary(namedUUIDs: namedUUIDs)
+        output += formatUUIDSummary(uuidNamer: analysis.uuidNamer)
       }
     }
 
@@ -346,37 +346,78 @@ private extension OutputFormatter {
 
   /// Formats the UUID naming summary section.
   ///
-  /// Shows all UUIDs that were assigned names during log analysis, grouped
-  /// by type (Home, Device, Action Set, Unknown). Displays each UUID's first
-  /// 8 characters followed by names discovered for it.
+  /// Shows all UUIDs that were assigned names during log analysis, organized
+  /// by home. For each home, displays the home name followed by devices and
+  /// action sets that belong to it. Entities not associated with any home are
+  /// shown in a separate "Unknown Home" section.
   ///
-  /// - Parameter namedUUIDs: Array of UUID-to-entities mappings with type information.
+  /// - Parameter uuidNamer: The UUID namer with all extracted names and associations.
   /// - Returns: Formatted UUID summary section.
-  func formatUUIDSummary(
-    namedUUIDs: [(uuid: String, entities: Set<NamedEntity>, primaryType: NameType)]
-  ) -> String {
+  func formatUUIDSummary(uuidNamer: UUIDNamer) -> String {
     var output = "UUID NAMING SUMMARY\n"
     output += "===================\n\n"
+
+    let namedUUIDs = uuidNamer.namedUUIDs()
     output += "Discovered \(namedUUIDs.count) named UUID(s):\n\n"
 
-    // Group by type
-    var currentType: NameType? = nil
+    // Get entities organized by home
+    let (homeToEntities, standaloneHomes, unknownHomeEntities) = uuidNamer.entitiesByHome()
 
-    for (uuid, entities, primaryType) in namedUUIDs {
-      // Print type header when type changes
-      if currentType != primaryType {
-        if currentType != nil {
-          output += "\n"
-        }
-        output += "\(TerminalColor.bold)\(primaryType.rawValue)s:\(TerminalColor.reset)\n"
-        currentType = primaryType
+    // Get all home UUIDs (both with and without children)
+    let allHomeUUIDs = Set(homeToEntities.keys).union(standaloneHomes).sorted()
+
+    // Display each home with its entities
+    for homeUUID in allHomeUUIDs {
+      // Display home
+      let homeEntities = uuidNamer.entities(for: homeUUID)
+      let homeNames = homeEntities.map { $0.name }.sorted()
+      let homePrefix = String(homeUUID.prefix(8))
+
+      if !homeNames.isEmpty {
+        output +=
+          "\(TerminalColor.bold)\(homeNames.joined(separator: " / "))\(TerminalColor.reset) "
+        output += "\(TerminalColor.gray)(\(homePrefix)...)\(TerminalColor.reset)\n"
+      } else {
+        output += "\(TerminalColor.bold)Home\(TerminalColor.reset) "
+        output += "\(TerminalColor.gray)(\(homePrefix)...)\(TerminalColor.reset)\n"
       }
 
-      let sortedNames = entities.map { $0.name }.sorted()
-      let prefix = String(uuid.prefix(8))
-      output += "  \(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
-      output += sortedNames.joined(separator: " / ")
+      // Display entities belonging to this home
+      if let entityUUIDs = homeToEntities[homeUUID], !entityUUIDs.isEmpty {
+        for entityUUID in entityUUIDs {
+          let entities = uuidNamer.entities(for: entityUUID)
+          let names = entities.map { $0.name }.sorted()
+          let types = entities.map { $0.type }
+          let typeLabel = types.contains(.actionSet) ? "Scene" : "Device"
+          let prefix = String(entityUUID.prefix(8))
+
+          output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
+          output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
+          output += names.joined(separator: " / ")
+          output += "\n"
+        }
+      }
+
       output += "\n"
+    }
+
+    // Display entities with unknown homes
+    if !unknownHomeEntities.isEmpty {
+      output += "\(TerminalColor.bold)Unknown Home\(TerminalColor.reset)\n"
+
+      for entityUUID in unknownHomeEntities {
+        let entities = uuidNamer.entities(for: entityUUID)
+        let names = entities.map { $0.name }.sorted()
+        let types = entities.map { $0.type }
+        let typeLabel = types.contains(.actionSet)
+          ? "Scene" : (types.contains(.device) ? "Device" : "Unknown")
+        let prefix = String(entityUUID.prefix(8))
+
+        output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
+        output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
+        output += names.joined(separator: " / ")
+        output += "\n"
+      }
     }
 
     return output

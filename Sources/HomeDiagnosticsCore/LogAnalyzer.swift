@@ -32,6 +32,9 @@ public struct LogAnalyzer {
       uuidNamer.extractNames(from: entry.message)
     }
 
+    // Second pass: associate home names with home UUIDs
+    uuidNamer.associateHomeNames()
+
     let totalCount = entries.count
     let errorCount = entries.filter { $0.level == .error }.count
     let faultCount = entries.filter { $0.level == .fault }.count

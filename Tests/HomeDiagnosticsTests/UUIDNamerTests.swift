@@ -280,4 +280,94 @@ struct UUIDNamerTests {
     // Should only have the valid human-readable name
     #expect(displayName == "Living Room Lamp-12345678")
   }
+
+  /// Tests home name association from path patterns and home lists
+  @Test("Associate home names with home UUIDs")
+  func testHomeNameAssociation() async throws {
+    var namer = UUIDNamer()
+
+    // Extract devices with home names
+    namer.extractNames(
+      from: "[Bank Street/Lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test")
+    namer.extractNames(
+      from: "[Bank Street/Camera/CBD9ADE0-29ED-5945-A6A9-6E1750392F3D] Test")
+
+    // Register home UUID
+    namer.extractNames(
+      from: "updateHomes(timeout:) found homes [3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852]")
+
+    // Associate home names with home UUIDs
+    namer.associateHomeNames()
+
+    // Home should now have a name
+    let homeName = namer.displayName(for: "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852")
+    #expect(homeName == "Bank Street-3C0F85CD")
+
+    // Verify entitiesByHome groups devices under home
+    let (homeToEntities, _, _) = namer.entitiesByHome()
+    let homeUUID = "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852".uppercased()
+    #expect(homeToEntities[homeUUID]?.count == 2)
+    #expect(
+      homeToEntities[homeUUID]?
+        .contains("4A8856A0-38E3-5AF4-AC52-8390FFE944A2".uppercased()) == true)
+    #expect(
+      homeToEntities[homeUUID]?
+        .contains("CBD9ADE0-29ED-5945-A6A9-6E1750392F3D".uppercased()) == true)
+  }
+
+  /// Tests entities with unknown homes are properly categorized
+  @Test("Entities without home association go to unknown home")
+  func testUnknownHomeEntities() async throws {
+    var namer = UUIDNamer()
+
+    // Extract device without registering its home
+    namer.extractNames(
+      from: "[Some Home/Orphan Device/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test")
+
+    // Associate (but no home UUIDs registered, so device remains orphaned)
+    namer.associateHomeNames()
+
+    let (homeToEntities, _, unknownHomeEntities) = namer.entitiesByHome()
+
+    // Should have no home associations
+    #expect(homeToEntities.isEmpty)
+
+    // Device should be in unknown home list
+    #expect(unknownHomeEntities.count == 1)
+    #expect(
+      unknownHomeEntities.contains("4A8856A0-38E3-5AF4-AC52-8390FFE944A2".uppercased()))
+  }
+
+  /// Tests action set home association from kHomeUUID
+  @Test("Associate action sets with homes via kHomeUUID")
+  func testActionSetHomeAssociation() async throws {
+    var namer = UUIDNamer()
+
+    // Extract action set with kHomeUUID
+    namer.extractNames(
+      from: """
+        Add action set finished. {
+            kActionSetName = "Good Morning";
+            kActionSetUUID = "8006AFD6-5739-53CB-8175-DA40FF2BFCD2";
+            kHomeUUID = "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852";
+        }
+        """)
+
+    // Register the home
+    namer.extractNames(
+      from: "[Bank Street/Device/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test")
+    namer.extractNames(
+      from: "updateHomes(timeout:) found homes [3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852]")
+
+    namer.associateHomeNames()
+
+    // Verify action set is associated with home
+    let (homeToEntities, _, _) = namer.entitiesByHome()
+    let homeUUID = "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852".uppercased()
+    #expect(homeToEntities[homeUUID]?.count == 2)  // Device + Action set
+    #expect(
+      homeToEntities[homeUUID]?
+        .contains("8006AFD6-5739-53CB-8175-DA40FF2BFCD2".uppercased()) == true)
+  }
 }
+

@@ -206,12 +206,15 @@ struct FormattingTests {
   }
 
   /// Tests UUID summary section appears when names are discovered
-  @Test("UUID summary section shows discovered names")
+  @Test("UUID summary section shows discovered names organized by home")
   func testUUIDSummarySection() async throws {
     var namer = UUIDNamer()
     namer.extractNames(
       from:
         "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message")
+    namer.extractNames(
+      from: "updateHomes(timeout:) found homes [3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852]")
+    namer.associateHomeNames()
 
     let entry = LogEntry(
       timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
@@ -240,10 +243,12 @@ struct FormattingTests {
 
     let output = formatter.format()
 
-    // Verify UUID summary section appears (now showing device name only)
+    // Verify UUID summary section appears with home name and device
     #expect(output.contains("UUID NAMING SUMMARY"))
-    #expect(output.contains("4A8856A0..."))
-    #expect(output.contains("Hue color lamp"))
+    #expect(output.contains("Bank Street"))  // Home name
+    #expect(output.contains("3C0F85CD..."))  // Home UUID prefix
+    #expect(output.contains("4A8856A0..."))  // Device UUID prefix
+    #expect(output.contains("Hue color lamp"))  // Device name
   }
 
   /// Tests UUID summary section is omitted when substituteNames is false
