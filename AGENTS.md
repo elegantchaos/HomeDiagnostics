@@ -260,9 +260,10 @@ If SwiftData is configured to use CloudKit:
 
 - Maintain an up to date README.md
 - Keep the README short and factual.
-- Do not include any "marketing" style copy in the README.
+- Do not include any "marketing" style copy in the README, such as a "key features" list.
 - Include the following sections: Overview, Quick Start, Documentation
 - Break out additional information from the README into extra markdown files in Extras/Documentation/.
 - Some examples of additional sections that may be appropriate (depending on context): Requirements, Installation, Options, Output Reference, Usage Guide, Performance Guide, Development Guide.
+- Create and organise other section documents as appropriate.
 - The files in Extras/Guidelines/ are development guidelines; do not modify them.
 - Where appropriate, refer to the guideline documents from other documentation. 
