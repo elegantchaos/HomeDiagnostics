@@ -41,7 +41,7 @@ struct IntegrationTests {
     // Note: collectLogs() calls collectLogsForSubsystem() for 3 subsystems,
     // so we'll get 6 entries (2 for each subsystem from the mock)
     // Instead, test parseJSONLogOutput directly
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.count == 2)
     #expect(entries[0].level == .error)
@@ -76,7 +76,7 @@ struct IntegrationTests {
       includeDebug: true
     )
 
-    let entries = collector.parseJSONLogOutput(jsonString, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonString, subsystem: "com.apple.HomeKit")
 
     // Verify we parsed the sample data correctly
     #expect(entries.count == 10)

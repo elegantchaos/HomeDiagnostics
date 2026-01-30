@@ -1,5 +1,5 @@
-import Testing
 import Foundation
+import Testing
 
 @testable import HomeDiagnosticsCore
 
@@ -21,17 +21,17 @@ struct JSONStreamParserTests {
     // Two complete JSON objects as they would appear after stream parsing
     let jsonObjects = [
       """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test message 1","processImagePath":"/usr/bin/test"}
+      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test message 1","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       """,
       """
-      {"timestamp":"2026-01-30 10:01:00.000000+0000","messageType":"Error","eventMessage":"Test message 2","processImagePath":"/usr/bin/test"}
+      {"timestamp":"2026-01-30 10:01:00.000000+0000","messageType":"Error","eventMessage":"Test message 2","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       """,
     ]
 
     var entries: [LogEntry] = []
-
+    let decoder = collector.makeEntryDecoder()
     for jsonString in jsonObjects {
-      if let entry = collector.parseJSONObject(jsonString, subsystem: "test") {
+      if let entry = try collector.parseJSONEntry(jsonString, decoder: decoder) {
         entries.append(entry)
       }
     }
@@ -52,10 +52,11 @@ struct JSONStreamParserTests {
     )
 
     let jsonString = """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test message","processImagePath":"/usr/bin/test"}
+      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test message","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       """
 
-    let entry = collector.parseJSONObject(jsonString, subsystem: "com.apple.HomeKit")
+    let decoder = collector.makeEntryDecoder()
+    let entry = try collector.parseJSONEntry(jsonString, decoder: decoder)
 
     #expect(entry != nil)
     #expect(entry?.message == "Test message")
@@ -75,19 +76,19 @@ struct JSONStreamParserTests {
     let testCases: [(messageType: String, expectedLevel: LogLevel)] = [
       ("Debug", .debug),
       ("Info", .info),
-      ("Default", .info),
+      ("Default", .default),
       ("Error", .error),
       ("Fault", .fault),
       ("Warning", .warning),
-      ("Unknown", .info),
     ]
 
     for testCase in testCases {
       let jsonString = """
-        {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"\(testCase.messageType)","eventMessage":"Test","processImagePath":"/usr/bin/test"}
+        {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"\(testCase.messageType)","eventMessage":"Test","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
         """
 
-      let entry = collector.parseJSONObject(jsonString, subsystem: "test")
+      let decoder = collector.makeEntryDecoder()
+      let entry = try collector.parseJSONEntry(jsonString, decoder: decoder)
       #expect(entry?.level == testCase.expectedLevel)
     }
   }
@@ -104,8 +105,10 @@ struct JSONStreamParserTests {
       {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test"
       """
 
-    let entry = collector.parseJSONObject(invalidJSON, subsystem: "test")
-    #expect(entry == nil)
+    let decoder = collector.makeEntryDecoder()
+    #expect(throws: DecodingError.self) {
+      try collector.parseJSONEntry(invalidJSON, decoder: decoder)
+    }
   }
 
   /// Tests that missing required fields returns nil.
@@ -117,18 +120,16 @@ struct JSONStreamParserTests {
     )
 
     let missingTimestamp = """
-      {"messageType":"Info","eventMessage":"Test","processImagePath":"/usr/bin/test"}
+      {"messageType":"Info","eventMessage":"Test","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       """
 
     let missingMessage = """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","processImagePath":"/usr/bin/test"}
+      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       """
 
-    let entry1 = collector.parseJSONObject(missingTimestamp, subsystem: "test")
-    let entry2 = collector.parseJSONObject(missingMessage, subsystem: "test")
-
-    #expect(entry1 == nil)
-    #expect(entry2 == nil)
+    let decoder = collector.makeEntryDecoder()
+    #expect(throws: DecodingError.self) { try collector.parseJSONEntry(missingTimestamp, decoder: decoder) }
+    #expect(throws: DecodingError.self) { try collector.parseJSONEntry(missingMessage, decoder: decoder) }
   }
 
   /// Tests parsing timestamp format correctly.
@@ -140,10 +141,11 @@ struct JSONStreamParserTests {
     )
 
     let jsonString = """
-      {"timestamp":"2026-01-30 14:25:34.202233+0000","messageType":"Info","eventMessage":"Test","processImagePath":"/usr/bin/test"}
+      {"timestamp":"2026-01-30 14:25:34.202233+0000","messageType":"Info","eventMessage":"Test","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       """
 
-    let entry = collector.parseJSONObject(jsonString, subsystem: "test")
+    let decoder = collector.makeEntryDecoder()
+    let entry = try collector.parseJSONEntry(jsonString, decoder: decoder)
 
     #expect(entry != nil)
 
@@ -177,10 +179,11 @@ struct JSONStreamParserTests {
 
     for testCase in testCases {
       let jsonString = """
-        {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test","processImagePath":"\(testCase.path)"}
+        {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Test","subsystem":"com.apple.HomeKit","processImagePath":"\(testCase.path)"}
         """
 
-      let entry = collector.parseJSONObject(jsonString, subsystem: "test")
+      let decoder = collector.makeEntryDecoder()
+      let entry = try collector.parseJSONEntry(jsonString, decoder: decoder)
       #expect(entry?.process == testCase.expectedName)
     }
   }
@@ -195,10 +198,11 @@ struct JSONStreamParserTests {
 
     // Message field might contain JSON-like content
     let jsonString = """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Data: {nested: value}","processImagePath":"/usr/bin/test"}
+      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Data: {nested: value}","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       """
 
-    let entry = collector.parseJSONObject(jsonString, subsystem: "test")
+    let decoder = collector.makeEntryDecoder()
+    let entry = try collector.parseJSONEntry(jsonString, decoder: decoder)
     #expect(entry != nil)
     #expect(entry?.message == "Data: {nested: value}")
   }
@@ -212,10 +216,11 @@ struct JSONStreamParserTests {
     )
 
     let jsonString = """
-      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Message with \\"quotes\\"","processImagePath":"/usr/bin/test"}
+      {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Message with \\"quotes\\"","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       """
 
-    let entry = collector.parseJSONObject(jsonString, subsystem: "test")
+    let decoder = collector.makeEntryDecoder()
+    let entry = try collector.parseJSONEntry(jsonString, decoder: decoder)
     #expect(entry != nil)
     #expect(entry?.message.contains("quotes") == true)
   }
@@ -230,9 +235,9 @@ struct JSONStreamParserTests {
 
     let jsonArray = """
       [
-        {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Alpha","processImagePath":"/usr/bin/test"},
-        {"timestamp":"2026-01-30 10:01:00.000000+0000","messageType":"Error","eventMessage":"Beta","processImagePath":"/usr/bin/test"},
-        {"timestamp":"2026-01-30 10:02:00.000000+0000","messageType":"Warning","eventMessage":"Gamma","processImagePath":"/usr/bin/test"}
+        {"timestamp":"2026-01-30 10:00:00.000000+0000","messageType":"Info","eventMessage":"Alpha","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"},
+        {"timestamp":"2026-01-30 10:01:00.000000+0000","messageType":"Error","eventMessage":"Beta","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"},
+        {"timestamp":"2026-01-30 10:02:00.000000+0000","messageType":"Warning","eventMessage":"Gamma","subsystem":"com.apple.HomeKit","processImagePath":"/usr/bin/test"}
       ]
       """
 
@@ -240,8 +245,8 @@ struct JSONStreamParserTests {
     let collector = LogCollector(
       timeInterval: "1h",
       includeDebug: false,
-      filter: "Alpha",    // would normally filter to Alpha
-      errorsOnly: true,    // would normally filter to Error/Fault/Warning
+      filter: "Alpha",  // would normally filter to Alpha
+      errorsOnly: true,  // would normally filter to Error/Fault/Warning
       dataSource: MockSource(json: jsonArray)
     )
 
@@ -253,6 +258,6 @@ struct JSONStreamParserTests {
     // Expect all three entries to be present (no filtering during parsing)
     #expect(received.count == 3)
     let messages = received.map { $0.message }.sorted()
-    #expect(messages == ["Alpha", "Beta", "Gamma"]) 
+    #expect(messages == ["Alpha", "Beta", "Gamma"])
   }
 }

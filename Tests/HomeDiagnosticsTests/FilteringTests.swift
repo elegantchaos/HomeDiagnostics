@@ -117,7 +117,7 @@ struct FilteringTests {
       errorsOnly: true
     )
 
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.count == 3)  // Error, Warning, Fault only
     #expect(entries[0].level == .error)
@@ -161,7 +161,7 @@ struct FilteringTests {
       errorsOnly: true
     )
 
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.count == 1)  // Only "Hue device error"
     #expect(entries[0].message == "Hue device error")

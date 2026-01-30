@@ -7,11 +7,11 @@ import Subprocess
   import SystemPackage
 #endif
 
-struct RawLogEntries: Codable {
+private struct RawLogEntries: Codable {
   let entries: [RawLogEntry]
 }
 
-struct RawLogEntry: Codable {
+private struct RawLogEntry: Codable {
   let timestamp: Date
   let messageType: LogLevel
   let eventMessage: String
@@ -19,7 +19,7 @@ struct RawLogEntry: Codable {
   let processImagePath: String
 }
 
-extension LogEntry {
+private extension LogEntry {
   init(_ raw: RawLogEntry) {
     timestamp = raw.timestamp
     subsystem = raw.subsystem
@@ -104,16 +104,15 @@ public struct LogCollector: Sendable {
     decoder.dateDecodingStrategy = JSONDecoder.DateDecodingStrategy.custom {
       let container = try $0.singleValueContainer()
       let string = try container.decode(String.self)
-      if let date = formatter.date(from: string)
-      {
+      if let date = formatter.date(from: string) {
         return date
       }
       throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(string)")
     }
-    
+
     return decoder
   }
-  
+
   /// Collects and parses logs from all Home and HomeKit subsystems as a stream.
   ///
   /// Streams entries from com.apple.Home, com.apple.HomeKit, and com.apple.homed concurrently,
@@ -160,31 +159,15 @@ public struct LogCollector: Sendable {
     return allOutput.joined(separator: "\n")
   }
 
-  /// Parses JSON log output into structured log entries.
-  ///
-  /// Exposed as public for testing purposes. Parses the JSON array format
-  /// returned by `/usr/bin/log --style json`, extracting timestamp, level,
-  /// message, and metadata. Applies filters during parsing.
-  ///
-  /// - Parameters:
-  ///   - output: JSON string from unified logging system.
-  ///   - subsystem: The subsystem identifier for these logs.
-  /// - Returns: Array of parsed and filtered log entries.
-  public func parseJSONLogOutput(_ output: String, subsystem: String) -> [LogEntry] {
-    guard let data = output.data(using: .utf8) else {
-      debugLogger?("Failed to convert output to UTF-8 data")
-      return []
-    }
-
+  /// Parses a JSON list of entries.
+  /// For testing purposes only.
+  public func parseJSONEntries(_ output: String, subsystem: String) throws -> [LogEntry] {
+    let data = output.data(using: .utf8)!
     let decoder = makeEntryDecoder()
-    do {
-      let entries = try decoder.decode(RawLogEntries.self, from: data).entries
-      return entries.map { LogEntry($0) }
-    } catch {
-      debugLogger?("Failed to parse JSON as array of dictionaries")
-      return []
-    }
+    let entries = try decoder.decode(RawLogEntries.self, from: data).entries
+    return entries.compactMap { filteredEntry(LogEntry($0)) }
   }
+
 
   /// Checks if text matches a filter pattern (plain text or regex).
   ///
@@ -207,43 +190,41 @@ public struct LogCollector: Sendable {
     }
   }
 
-  /// Parses a single JSON object string into a LogEntry.
-  ///
-  /// Exposed as public for testing purposes only.
-  /// Applies filtering during parsing for efficiency.
-  ///
-  /// - Parameters:
-  ///   - jsonString: JSON object string (without array brackets).
-  /// - Returns: Parsed and filtered log entry, or `nil` if it should be filtered out or parsing fails.
-  public func parseJSONObject(_ jsonString: String, decoder: JSONDecoder) -> LogEntry? {
-    guard let data = jsonString.data(using: .utf8) else {
-      debugLogger?("Failed to convert JSON string to UTF-8 data")
-      return nil
-    }
-
+  public func parseJSONEntryLoggingErrors(_ jsonString: String, decoder: JSONDecoder) -> LogEntry? {
     do {
-      let parsed = try decoder.decode(RawLogEntry.self, from: data)
-      let entry = LogEntry(parsed)
-
-      // Apply filters
-      var shouldInclude = true
-
-      // Filter for errors only if requested
-      if errorsOnly {
-        let level = parsed.messageType
-        shouldInclude = shouldInclude && (level == .error || level == .fault || level == .warning)
-      }
-
-      // Apply filter if provided
-      if let filter = filter {
-        shouldInclude = shouldInclude && matchesFilter(entry.message, pattern: filter)
-      }
-
-      return shouldInclude ? entry : nil
+      return try parseJSONEntry(jsonString, decoder: decoder)
     } catch {
       debugLogger?("Failed to parse JSON object \(error)")
       return nil
     }
+  }
+
+  public func parseJSONEntry(_ jsonString: String, decoder: JSONDecoder) throws -> LogEntry? {
+    guard let data = jsonString.data(using: .utf8) else {
+      throw NSError(domain: "LogCollector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert JSON string to UTF-8 data"])
+    }
+
+    let parsed = try decoder.decode(RawLogEntry.self, from: data)
+    let entry = LogEntry(parsed)
+    return filteredEntry(entry)
+  }
+
+  public func filteredEntry(_ entry: LogEntry) -> LogEntry? {
+    // Apply filters
+    var shouldInclude = true
+
+    // Filter for errors only if requested
+    if errorsOnly {
+      let level = entry.level
+      shouldInclude = shouldInclude && (level == .error || level == .fault || level == .warning)
+    }
+
+    // Apply filter if provided
+    if let filter = filter {
+      shouldInclude = shouldInclude && matchesFilter(entry.message, pattern: filter)
+    }
+
+    return shouldInclude ? entry : nil
   }
 
 
@@ -311,7 +292,7 @@ public struct LogCollector: Sendable {
           // If we have a test data source, simulate streaming by parsing all at once
           if let dataSource = dataSource {
             let output = try await dataSource.fetchJSONLogs(subsystem: subsystem)
-            let entries = parseJSONLogOutput(output, subsystem: subsystem)
+            let entries = try! parseJSONEntries(output, subsystem: subsystem)
             for entry in entries {
               continuation.yield(entry)
             }
@@ -347,7 +328,7 @@ public struct LogCollector: Sendable {
               for jsonString in completeObjects {
                 totalParsed += 1
 
-                if let entry = parseJSONObject(jsonString, decoder: decoder) {
+                if let entry = parseJSONEntryLoggingErrors(jsonString, decoder: decoder) {
                   continuation.yield(entry)
                 }
 

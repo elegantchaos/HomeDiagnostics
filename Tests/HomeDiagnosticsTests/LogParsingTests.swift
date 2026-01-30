@@ -28,7 +28,7 @@ struct LogParsingTests {
       ]
       """
 
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.count == 1)
     #expect(entries[0].message == "Test error message")
@@ -71,7 +71,7 @@ struct LogParsingTests {
       ]
       """
 
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.count == 3)
     #expect(entries[0].level == .error)
@@ -108,7 +108,7 @@ struct LogParsingTests {
         ]
         """
 
-      let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+      let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
       #expect(entries.count == 1)
       #expect(entries[0].level == testCase.expectedLevel)
@@ -125,7 +125,7 @@ struct LogParsingTests {
 
     let jsonInput = "[]"
 
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.isEmpty)
   }
@@ -140,7 +140,7 @@ struct LogParsingTests {
 
     let jsonInput = "{not valid json"
 
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.isEmpty)
   }
@@ -164,7 +164,7 @@ struct LogParsingTests {
       ]
       """
 
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.isEmpty)
   }
@@ -189,7 +189,7 @@ struct LogParsingTests {
       ]
       """
 
-    let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
     #expect(entries.count == 1)
 
@@ -229,7 +229,7 @@ struct LogParsingTests {
         ]
         """
 
-      let entries = collector.parseJSONLogOutput(jsonInput, subsystem: "com.apple.HomeKit")
+      let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
 
       #expect(entries.count == 1)
       #expect(entries[0].process == expectedName)
