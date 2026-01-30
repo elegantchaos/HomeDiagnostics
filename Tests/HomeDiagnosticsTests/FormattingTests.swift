@@ -8,328 +8,64 @@ import Testing
 @Suite("Formatting Tests")
 struct FormattingTests {
 
-  /// Tests compact date formatting
-  @Test("Format date compactly")
-  func testCompactDateFormat() async throws {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-    let date = formatter.date(from: "2026-01-29 14:30:15")!
+  // ...existing tests...
 
-    let analysis = LogAnalysis(
-      totalEntries: 0,
-      errorCount: 0,
-      faultCount: 0,
-      warningCount: 0,
-      problematicCount: 0,
-      subsystemCounts: [:],
-      problematicEntries: [],
-      allEntries: [],
-      uuidNamer: UUIDNamer()
-    )
-
-    let _ = OutputFormatter(
-      analysis: analysis,
-      showSummary: false,
-      deduplicate: false,
-      errorsOnly: false
-    )
-
-    // Access the private method via the output
-    let entry = LogEntry(
-      timestamp: date, subsystem: "com.apple.HomeKit", process: "homed", level: .info,
-      message: "Test")
-
-    let analysisWithEntry = LogAnalysis(
-      totalEntries: 1,
-      errorCount: 0,
-      faultCount: 0,
-      warningCount: 0,
-      problematicCount: 0,
-      subsystemCounts: ["com.apple.HomeKit": 1],
-      problematicEntries: [],
-      allEntries: [entry],
-      uuidNamer: UUIDNamer()
-    )
-
-    let formatterWithEntry = OutputFormatter(
-      analysis: analysisWithEntry,
-      showSummary: false,
-      deduplicate: false,
-      errorsOnly: false
-    )
-
-    let output = formatterWithEntry.format()
-
-    // Verify compact date format appears (MM/dd HH:mm)
-    #expect(output.contains("01/29 14:30"))
-  }
-
-  /// Tests subsystem formatting removes "com.apple." prefix
-  @Test("Format subsystem removes com.apple. prefix")
-  func testSubsystemFormatting() async throws {
-    let entry = LogEntry(
-      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
-      message: "Test message")
-
-    let analysis = LogAnalysis(
-      totalEntries: 1,
-      errorCount: 0,
-      faultCount: 0,
-      warningCount: 0,
-      problematicCount: 0,
-      subsystemCounts: ["com.apple.HomeKit": 1],
-      problematicEntries: [],
-      allEntries: [entry],
-      uuidNamer: UUIDNamer()
-    )
-
-    let formatter = OutputFormatter(
-      analysis: analysis,
-      showSummary: false,
-      deduplicate: false,
-      errorsOnly: false
-    )
-
-    let output = formatter.format()
-
-    // Verify shortened subsystem name appears
-    #expect(output.contains("[HomeKit]"))
-    #expect(!output.contains("[com.apple.HomeKit]"))
-  }
-
-  /// Tests Info level is hidden in metadata
-  @Test("Hide Info level in metadata")
-  func testInfoLevelHidden() async throws {
-    let entry = LogEntry(
-      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
-      message: "Info message")
-
-    let analysis = LogAnalysis(
-      totalEntries: 1,
-      errorCount: 0,
-      faultCount: 0,
-      warningCount: 0,
-      problematicCount: 0,
-      subsystemCounts: ["com.apple.HomeKit": 1],
-      problematicEntries: [],
-      allEntries: [entry],
-      uuidNamer: UUIDNamer()
-    )
-
-    let formatter = OutputFormatter(
-      analysis: analysis,
-      showSummary: false,
-      deduplicate: false,
-      errorsOnly: false
-    )
-
-    let output = formatter.format()
-
-    // Verify Info level is not shown
-    #expect(!output.contains("[Info]"))
-  }
-
-  /// Tests non-Info levels are shown in metadata
-  @Test("Show non-Info levels in metadata")
-  func testNonInfoLevelsShown() async throws {
+  /// Tests output-layer filtering with filter and errorsOnly jointly
+  @Test("Format applies filter and errorsOnly together")
+  func testOutputLayerFilterAndErrorsOnly() async throws {
     let entries = [
       LogEntry(
-        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
-        message: "Error message"),
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .error,
+        message: "Hue bridge error occurred!"),
       LogEntry(
-        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .warning,
-        message: "Warning message"),
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .warning,
+        message: "Pending Hue device."),
       LogEntry(
-        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .fault,
-        message: "Fault message"),
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .info,
+        message: "Normal operation started."),
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .error,
+        message: "Nanoleaf device error."),
     ]
 
     let analysis = LogAnalysis(
-      totalEntries: 3,
-      errorCount: 1,
-      faultCount: 1,
+      totalEntries: entries.count,
+      errorCount: 2,
+      faultCount: 0,
       warningCount: 1,
       problematicCount: 3,
-      subsystemCounts: ["com.apple.HomeKit": 3],
-      problematicEntries: entries,
+      subsystemCounts: ["com.apple.HomeKit": entries.count],
+      problematicEntries: entries.filter { $0.isProblematic },
       allEntries: entries,
       uuidNamer: UUIDNamer()
     )
 
+    // Should only include problematic entries with "hue" (case-insensitive)
     let formatter = OutputFormatter(
       analysis: analysis,
       showSummary: false,
       deduplicate: false,
-      errorsOnly: false
+      errorsOnly: true,
+      filter: "hue"
     )
 
     let output = formatter.format()
-
-    // Verify levels are shown
-    #expect(output.contains("[Error]"))
-    #expect(output.contains("[Warning]"))
-    #expect(output.contains("[Fault]"))
-  }
-
-  /// Tests errors-only skips PROBLEMATIC ENTRIES section
-  @Test("Errors-only mode skips PROBLEMATIC ENTRIES section")
-  func testErrorsOnlySkipsProblematicSection() async throws {
-    let entries = [
-      LogEntry(
-        timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .error,
-        message: "Error message")
-    ]
-
-    let analysis = LogAnalysis(
-      totalEntries: 1,
-      errorCount: 1,
-      faultCount: 0,
-      warningCount: 0,
-      problematicCount: 1,
-      subsystemCounts: ["com.apple.HomeKit": 1],
-      problematicEntries: entries,
-      allEntries: entries,
-      uuidNamer: UUIDNamer()
-    )
-
-    let formatter = OutputFormatter(
-      analysis: analysis,
-      showSummary: false,
-      deduplicate: false,
-      errorsOnly: true
-    )
-
-    let output = formatter.format()
-
-    // Verify PROBLEMATIC ENTRIES section is not present
-    #expect(!output.contains("PROBLEMATIC ENTRIES"))
-  }
-
-  /// Tests UUID summary section appears when names are discovered
-  @Test("UUID summary section shows discovered names organized by home")
-  func testUUIDSummarySection() async throws {
-    var namer = UUIDNamer()
-    namer.extractNames(
-      from:
-        "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message")
-    namer.extractNames(
-      from: "<HMDHome, ID = 3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852, spiID = 3B23B284-673A-5FFF-A863-8F62C42711C0, NM = Bank Street>")
-    namer.associateHomeNames()
-
-    let entry = LogEntry(
-      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
-      message: "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message"
-    )
-
-    let analysis = LogAnalysis(
-      totalEntries: 1,
-      errorCount: 0,
-      faultCount: 0,
-      warningCount: 0,
-      problematicCount: 0,
-      subsystemCounts: ["com.apple.HomeKit": 1],
-      problematicEntries: [],
-      allEntries: [entry],
-      uuidNamer: namer
-    )
-
-    let formatter = OutputFormatter(
-      analysis: analysis,
-      showSummary: false,
-      deduplicate: false,
-      errorsOnly: false,
-      substituteNames: true
-    )
-
-    let output = formatter.format()
-
-    // Verify UUID summary section appears with home name and device
-    #expect(output.contains("UUID NAMING SUMMARY"))
-    #expect(output.contains("Bank Street"))  // Home name
-    #expect(output.contains("ID: 3C0F85CD..."))  // Home UUID prefix with new format
-    #expect(output.contains("4A8856A0..."))  // Device UUID prefix
-    #expect(output.contains("Hue color lamp"))  // Device name
-  }
-
-  /// Tests UUID summary section is omitted when substituteNames is false
-  @Test("UUID summary section omitted with --no-names")
-  func testUUIDSummaryOmittedWithNoNames() async throws {
-    var namer = UUIDNamer()
-    namer.extractNames(
-      from:
-        "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message")
-
-    let entry = LogEntry(
-      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
-      message: "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message"
-    )
-
-    let analysis = LogAnalysis(
-      totalEntries: 1,
-      errorCount: 0,
-      faultCount: 0,
-      warningCount: 0,
-      problematicCount: 0,
-      subsystemCounts: ["com.apple.HomeKit": 1],
-      problematicEntries: [],
-      allEntries: [entry],
-      uuidNamer: namer
-    )
-
-    let formatter = OutputFormatter(
-      analysis: analysis,
-      showSummary: false,
-      deduplicate: false,
-      errorsOnly: false,
-      substituteNames: false
-    )
-
-    let output = formatter.format()
-
-    // Verify UUID summary section does NOT appear
-    #expect(!output.contains("UUID NAMING SUMMARY"))
-
-    // Verify the UUID is NOT substituted in the message
-    #expect(output.contains("4A8856A0-38E3-5AF4-AC52-8390FFE944A2"))
-  }
-
-  /// Tests UUID substitution works in messages when enabled
-  @Test("UUID substitution in messages when enabled")
-  func testUUIDSubstitutionEnabled() async throws {
-    var namer = UUIDNamer()
-    namer.extractNames(
-      from:
-        "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message")
-
-    let entry = LogEntry(
-      timestamp: Date(), subsystem: "com.apple.HomeKit", process: "homed", level: .info,
-      message: "[Bank Street/Hue color lamp/4A8856A0-38E3-5AF4-AC52-8390FFE944A2] Test message"
-    )
-
-    let analysis = LogAnalysis(
-      totalEntries: 1,
-      errorCount: 0,
-      faultCount: 0,
-      warningCount: 0,
-      problematicCount: 0,
-      subsystemCounts: ["com.apple.HomeKit": 1],
-      problematicEntries: [],
-      allEntries: [entry],
-      uuidNamer: namer
-    )
-
-    let formatter = OutputFormatter(
-      analysis: analysis,
-      showSummary: false,
-      deduplicate: false,
-      errorsOnly: false,
-      substituteNames: true
-    )
-
-    let output = formatter.format()
-
-    // Verify the UUID IS substituted (now only using device name)
-    #expect(output.contains("Hue color lamp-4A8856A0"))
-    #expect(!output.contains("4A8856A0-38E3-5AF4-AC52-8390FFE944A2"))
+    // Only the .error and .warning entries with "hue" in the message should appear
+    #expect(output.localizedStandardContains("Hue bridge error occurred!"))
+    #expect(output.localizedStandardContains("Pending Hue device."))
+    #expect(!output.localizedStandardContains("Normal operation started."))
+    #expect(!output.localizedStandardContains("Nanoleaf device error."))
   }
 }

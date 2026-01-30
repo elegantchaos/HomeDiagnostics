@@ -38,11 +38,6 @@ public struct LogCollector: Sendable {
   /// Whether to include debug-level logs in collection.
   public let includeDebug: Bool
 
-  /// Optional filter pattern (plain text or regex) to match log messages.
-  public let filter: String?
-
-  /// Whether to filter for only errors, faults, and warnings.
-  public let errorsOnly: Bool
 
   /// Optional data source for dependency injection during testing.
   ///
@@ -76,8 +71,6 @@ public struct LogCollector: Sendable {
   public init(
     timeInterval: String,
     includeDebug: Bool,
-    filter: String? = nil,
-    errorsOnly: Bool = false,
     dataSource: LogDataSource? = nil,
     debugLogger: (@Sendable (String) -> Void)? = nil,
     errorLogger: (@Sendable (String) -> Void)? = nil,
@@ -85,8 +78,6 @@ public struct LogCollector: Sendable {
   ) {
     self.timeInterval = timeInterval
     self.includeDebug = includeDebug
-    self.filter = filter
-    self.errorsOnly = errorsOnly
     self.dataSource = dataSource
     self.debugLogger = debugLogger
     self.errorLogger = errorLogger
@@ -162,30 +153,9 @@ public struct LogCollector: Sendable {
     let data = output.data(using: .utf8)!
     let decoder = makeEntryDecoder()
     let entries = try decoder.decode([RawLogEntry].self, from: data)
-    return entries.compactMap { filteredEntry(LogEntry($0)) }
+    return entries.map { LogEntry($0) }
   }
 
-
-  /// Checks if text matches a filter pattern (plain text or regex).
-  ///
-  /// Exposed as public for testing purposes. Attempts to compile the pattern
-  /// as a case-insensitive regex first. If regex compilation fails, falls back
-  /// to plain text search using localized string comparison.
-  ///
-  /// - Parameters:
-  ///   - text: The text to search within.
-  ///   - pattern: The search pattern (regex or plain text).
-  /// - Returns: `true` if the text matches the pattern.
-  public func matchesFilter(_ text: String, pattern: String) -> Bool {
-    // Try as regex first
-    do {
-      let regex = try Regex(pattern).ignoresCase()
-      return text.contains(regex)
-    } catch {
-      // Fall back to plain text search (case-insensitive)
-      return text.localizedStandardContains(pattern)
-    }
-  }
 
   public func parseJSONEntryLoggingErrors(_ jsonString: String, decoder: JSONDecoder) -> LogEntry? {
     do {
@@ -203,24 +173,7 @@ public struct LogCollector: Sendable {
 
     let parsed = try decoder.decode(RawLogEntry.self, from: data)
     let entry = LogEntry(parsed)
-    return filteredEntry(entry)
-  }
-
-  public func filteredEntry(_ entry: LogEntry) -> LogEntry? {
-    // Apply filters
-    var shouldInclude = true
-
-    // Filter for errors only if requested
-    if errorsOnly {
-      shouldInclude = shouldInclude && entry.isProblematic
-    }
-
-    // Apply filter if provided
-    if let filter = filter {
-      shouldInclude = shouldInclude && matchesFilter(entry.message, pattern: filter)
-    }
-
-    return shouldInclude ? entry : nil
+    return entry
   }
 
 
@@ -524,14 +477,7 @@ private extension LogCollector {
             progressLogger?(lineCount, subsystem)
           }
 
-          // Apply filter if present
-          if let filter = filter {
-            if matchesFilter(line, pattern: filter) {
-              collectedLines.append(line)
-            }
-          } else {
-            collectedLines.append(line)
-          }
+          collectedLines.append(line)
         }
 
         // Final progress report

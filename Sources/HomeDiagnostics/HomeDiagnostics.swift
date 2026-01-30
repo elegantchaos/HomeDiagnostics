@@ -115,8 +115,6 @@ struct HomeDiagnostics: AsyncParsableCommand {
       let collector = LogCollector(
         timeInterval: timeInterval,
         includeDebug: detailed,
-        filter: filter,
-        errorsOnly: errorsOnly,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
         progressLogger: { count, subsystem in
@@ -163,6 +161,7 @@ struct HomeDiagnostics: AsyncParsableCommand {
         showSummary: summary,
         deduplicate: dedupe,
         errorsOnly: errorsOnly,
+        filter: filter,
         substituteNames: !noNames
       )
 

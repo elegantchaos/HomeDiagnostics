@@ -19,7 +19,11 @@ public struct OutputFormatter {
   ///
   /// When `true`, skips the PROBLEMATIC ENTRIES section since it would
   /// be identical to the ALL ENTRIES section (which already filters to errors).
-  public let errorsOnly: Bool
+   public let errorsOnly: Bool
+
+   /// Optional filter for message content (plain text or regex)
+   public let filter: String?
+
 
   /// Whether to substitute UUIDs with human-readable names.
   ///
@@ -35,17 +39,19 @@ public struct OutputFormatter {
   ///   - deduplicate: Whether to group duplicate entries.
   ///   - errorsOnly: Whether errors-only mode is active.
   ///   - substituteNames: Whether to substitute UUIDs with names (default: true).
-  public init(
+   public init(
     analysis: LogAnalysis,
     showSummary: Bool,
     deduplicate: Bool,
     errorsOnly: Bool,
+    filter: String? = nil,
     substituteNames: Bool = true
   ) {
     self.analysis = analysis
     self.showSummary = showSummary
     self.deduplicate = deduplicate
     self.errorsOnly = errorsOnly
+    self.filter = filter
     self.substituteNames = substituteNames
   }
 
@@ -91,6 +97,17 @@ public struct OutputFormatter {
 // MARK: - Private Formatting Helpers
 
 private extension OutputFormatter {
+    /// Checks if text matches a filter pattern (plain text or regex).
+    /// Attempts as regex first; falls back to localized string search if invalid.
+    func matchesFilter(_ text: String, pattern: String) -> Bool {
+        do {
+            let regex = try Regex(pattern).ignoresCase()
+            return text.contains(regex)
+        } catch {
+            return text.localizedStandardContains(pattern)
+        }
+    }
+
   /// Formats the summary statistics section.
   ///
   /// Generates a text summary showing total counts, severity breakdowns,
@@ -99,21 +116,30 @@ private extension OutputFormatter {
   ///
   /// - Returns: Formatted summary section.
   func formatSummary() -> String {
+    // Apply filtering for display summaries as well
+    let filteredEntries = analysis.allEntries.filter { entry in
+      let passesError = !errorsOnly || entry.isProblematic
+      let passesFilter = filter == nil || matchesFilter(entry.message, pattern: filter!)
+      return passesError && passesFilter
+    }
+    let filteredProblematic = filteredEntries.filter { $0.isProblematic }
+
     var summary = "SUMMARY\n"
     summary += "=======\n\n"
-    summary += "Total log entries: \(analysis.totalEntries)\n"
-    summary += "Errors: \(analysis.errorCount)\n"
-    summary += "Faults: \(analysis.faultCount)\n"
-    summary += "Warnings: \(analysis.warningCount)\n"
-    summary += "Potentially problematic: \(analysis.problematicCount)\n"
+    summary += "Total log entries: \(filteredEntries.count)\n"
+    summary += "Errors: \(filteredEntries.filter { $0.level == .error }.count)\n"
+    summary += "Faults: \(filteredEntries.filter { $0.level == .fault }.count)\n"
+    summary += "Warnings: \(filteredEntries.filter { $0.level == .warning }.count)\n"
+    summary += "Potentially problematic: \(filteredProblematic.count)\n"
 
     if deduplicate {
-      let uniqueCount = groupEntries(analysis.allEntries).count
+      let uniqueCount = groupEntries(filteredEntries).count
       summary += "Unique entry types: \(uniqueCount)\n"
     }
 
     summary += "\nEntries by subsystem:\n"
-    for (subsystem, count) in analysis.subsystemCounts.sorted(by: { $0.value > $1.value }) {
+    let subsystemCounts = Dictionary(grouping: filteredEntries, by: { $0.subsystem }).mapValues { $0.count }
+    for (subsystem, count) in subsystemCounts.sorted(by: { $0.value > $1.value }) {
       summary += "  \(subsystem): \(count)\n"
     }
 
@@ -249,10 +275,15 @@ private extension OutputFormatter {
     var output = "PROBLEMATIC ENTRIES\n"
     output += "===================\n\n"
 
+    // Filter problematic entries further by output-stage filter
+    let filteredProblematic = analysis.problematicEntries.filter { entry in
+      filter == nil || matchesFilter(entry.message, pattern: filter!)
+    }
+
     if deduplicate {
-      let grouped = groupEntries(analysis.problematicEntries)
+      let grouped = groupEntries(filteredProblematic)
       output +=
-        "Showing \(grouped.count) unique problematic entry types (out of \(analysis.problematicCount) total)\n\n"
+        "Showing \(grouped.count) unique problematic entry types (out of \(filteredProblematic.count) total)\n\n"
 
       for group in grouped {
         let color = colorForLevel(group.example.level)
@@ -298,10 +329,17 @@ private extension OutputFormatter {
     var output = "ALL ENTRIES\n"
     output += "===========\n\n"
 
+    // Filter entries based on filter and errorsOnly flags
+    let filteredEntries = analysis.allEntries.filter { entry in
+      let passesError = !errorsOnly || entry.isProblematic
+      let passesFilter = filter == nil || matchesFilter(entry.message, pattern: filter!)
+      return passesError && passesFilter
+    }
+
     if deduplicate {
-      let grouped = groupEntries(analysis.allEntries)
+      let grouped = groupEntries(filteredEntries)
       output +=
-        "Showing \(grouped.count) unique entry types (out of \(analysis.totalEntries) total)\n\n"
+        "Showing \(grouped.count) unique entry types (out of \(filteredEntries.count) total)\n\n"
 
       for group in grouped {
         let color = colorForLevel(group.example.level)
@@ -322,7 +360,7 @@ private extension OutputFormatter {
         }
       }
     } else {
-      for entry in analysis.allEntries {
+      for entry in filteredEntries {
         let color = colorForLevel(entry.level)
 
         // Metadata line
