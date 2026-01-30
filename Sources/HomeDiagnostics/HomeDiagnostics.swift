@@ -143,12 +143,11 @@ struct HomeDiagnostics: AsyncParsableCommand {
       }
 
       // Normal mode: parse and analyze logs
-      let logs = try await collector.collectLogs()
-      info("Collected \(logs.count) log entries")
+      let logStream = collector.collectLogs()
 
       debug("Analyzing logs")
-      let analyzer = LogAnalyzer(entries: logs)
-      let analysis = analyzer.analyze()
+      let analyzer = LogAnalyzer(stream: logStream)
+      let analysis = try await analyzer.analyzeStream()
 
       debug("Formatting output")
       let formatter = OutputFormatter(

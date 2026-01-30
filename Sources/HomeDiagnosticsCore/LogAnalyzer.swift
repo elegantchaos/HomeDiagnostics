@@ -7,58 +7,63 @@ import Foundation
 /// `LogAnalysis` struct containing all computed statistics.
 public struct LogAnalyzer {
   /// The log entries to be analyzed.
-  public let entries: [LogEntry]
+  public let stream: AsyncThrowingStream<LogEntry, Error>
 
-  /// Creates a new log analyzer for the specified entries.
+  /// Creates a new log analyzer to analyze entries from the given stream.
   ///
-  /// - Parameter entries: The log entries to analyze.
-  public init(entries: [LogEntry]) {
-    self.entries = entries
+  /// - Parameter stream: An async stream of log entries.
+  public init(stream: AsyncThrowingStream<LogEntry, Error>) {
+    self.stream = stream
   }
 
-  /// Performs statistical analysis on the log entries.
+
+  /// Performs statistical analysis by consuming a stream of log entries.
   ///
-  /// Counts entries by severity level (error, fault, warning), identifies
-  /// problematic entries (errors, faults, or messages with failure keywords),
-  /// groups entries by subsystem, and extracts UUID-to-name mappings from
-  /// log message patterns.
+  /// Iterates the async stream, updating counts and UUID naming incrementally,
+  /// and accumulates entries for formatting and grouping.
   ///
   /// - Returns: Analysis results containing counts and categorizations.
-  public func analyze() -> LogAnalysis {
+  public func analyzeStream() async throws -> LogAnalysis {
     var uuidNamer = UUIDNamer()
 
-    // First pass: extract UUID names from all messages
-    for entry in entries {
+    var allEntries: [LogEntry] = []
+    var totalCount = 0
+    var errorCount = 0
+    var faultCount = 0
+    var warningCount = 0
+    var subsystemCounts: [String: Int] = [:]
+
+    for try await entry in stream {
+      // Extract names as we go
       uuidNamer.extractNames(from: entry.message)
+
+      // Accumulate
+      allEntries.append(entry)
+      totalCount += 1
+      subsystemCounts[entry.subsystem, default: 0] += 1
+
+      switch entry.level {
+      case .error: errorCount += 1
+      case .fault: faultCount += 1
+      case .warning: warningCount += 1
+      default: break
+      }
     }
 
-    // Second pass: associate home names with home UUIDs
+    // Associate home names after collecting all messages
     uuidNamer.associateHomeNames()
 
-    let totalCount = entries.count
-    let errorCount = entries.filter { $0.level == .error }.count
-    let faultCount = entries.filter { $0.level == .fault }.count
-    let warningCount = entries.filter { $0.level == .warning }.count
-
-    let problematicCount = entries.filter { $0.isProblematic }.count
-
-    let subsystemCounts = Dictionary(grouping: entries) { $0.subsystem }
-      .mapValues { $0.count }
-
-    let problematicEntries = entries.filter { $0.isProblematic }
-
-    // Note: Debug logging happens via global function in main executable
-    // debug("Analysis complete: \(totalCount) total, \(errorCount) errors, \(faultCount) faults, \(warningCount) warnings")
+    let problematicEntries = allEntries.filter { $0.isProblematic }
 
     return LogAnalysis(
       totalEntries: totalCount,
       errorCount: errorCount,
       faultCount: faultCount,
       warningCount: warningCount,
-      problematicCount: problematicCount,
+      problematicCount: problematicEntries.count,
       subsystemCounts: subsystemCounts,
       problematicEntries: problematicEntries,
-      allEntries: entries,
+      allEntries: allEntries,
       uuidNamer: uuidNamer
     )
   }

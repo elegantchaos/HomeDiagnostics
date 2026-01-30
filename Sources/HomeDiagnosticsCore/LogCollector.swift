@@ -114,47 +114,16 @@ public struct LogCollector: Sendable {
     return decoder
   }
   
-  /// Collects and parses logs from all Home and HomeKit subsystems.
+  /// Collects and parses logs from all Home and HomeKit subsystems as a stream.
   ///
-  /// Queries com.apple.Home, com.apple.HomeKit, and com.apple.homed subsystems,
-  /// parses their JSON output, applies filters, and returns sorted log entries.
+  /// Streams entries from com.apple.Home, com.apple.HomeKit, and com.apple.homed concurrently,
+  /// applies filters during parsing, and yields `LogEntry` items as they arrive.
   ///
-  /// - Returns: Array of log entries sorted by timestamp.
-  /// - Throws: An error if log collection fails (though individual subsystem failures are logged and skipped).
-  public func collectLogs() async throws -> [LogEntry] {
-    var collected: [LogEntry] = []
-    let stream = streamLogs()
-
-    // Consume the async throwing stream directly and accumulate via the actor to avoid races.
-    do {
-      for try await entry in stream {
-        await EntryAccumulator.shared.append(entry)
-      }
-    } catch {
-      // Propagate any streaming error
-      throw error
-    }
-
-    // Drain accumulated entries and sort by timestamp
-    collected = await EntryAccumulator.shared.drain()
-    collected.sort { $0.timestamp < $1.timestamp }
-
-    return collected
-  }
-
-  private actor EntryAccumulator {
-    static let shared = EntryAccumulator()
-    private var entries: [LogEntry] = []
-
-    func append(_ entry: LogEntry) {
-      entries.append(entry)
-    }
-
-    func drain() -> [LogEntry] {
-      let result = entries
-      entries.removeAll(keepingCapacity: false)
-      return result
-    }
+  /// - Returns: An async throwing stream of `LogEntry` objects.
+  public func collectLogs() -> AsyncThrowingStream<LogEntry, Error> {
+    // Delegate to the concurrent streaming implementation.
+    // Consumers should iterate the stream and process entries incrementally.
+    streamLogs()
   }
 
   /// Collects raw, unparsed log output in syslog format.
