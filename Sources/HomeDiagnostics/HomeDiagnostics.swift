@@ -89,6 +89,18 @@ struct HomeDiagnostics: AsyncParsableCommand {
     help: "Entity discovery method: patterns, api, or both (default)")
   var entitySource: EntitySource = .both
 
+  /// Directory path for capturing raw JSON log data.
+  @Option(
+    name: .long,
+    help: "Capture raw JSON log data to the specified directory")
+  var capture: String?
+
+  /// Directory path for replaying a previously captured session.
+  @Option(
+    name: .long,
+    help: "Replay logs from a previously captured session directory")
+  var session: String?
+
   /// Main entry point for the command execution.
   ///
   /// Validates arguments, configures log collection parameters, and runs the
@@ -107,6 +119,16 @@ struct HomeDiagnostics: AsyncParsableCommand {
 
     if raw && errorsOnly {
       printErr("[ERROR] --raw cannot be combined with --errors-only")
+      throw ExitCode.validationFailure
+    }
+
+    if capture != nil && session != nil {
+      printErr("[ERROR] --capture and --session cannot be used together")
+      throw ExitCode.validationFailure
+    }
+
+    if session != nil && raw {
+      printErr("[ERROR] --session cannot be combined with --raw")
       throw ExitCode.validationFailure
     }
 
@@ -140,21 +162,35 @@ struct HomeDiagnostics: AsyncParsableCommand {
         printErr("==========================================\n")
       }
 
+      // Create data source from session directory if specified
+      let dataSource: LogDataSource? =
+        if let sessionDir = session {
+          CapturedSessionDataSource(directoryPath: sessionDir)
+        } else {
+          nil
+        }
+
       let collector = LogCollector(
         timeInterval: timeInterval,
         includeDebug: detailed,
         entryLimit: entries,
+        dataSource: dataSource,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
         progressLogger: { count, subsystem in
           // Always show progress (not just in verbose mode) since collection can take a long time
           let shortName = subsystem.replacingOccurrences(of: "com.apple.", with: "")
           printErr("  Collected \(count) entries from \(shortName)...")
-        }
+        },
+        captureDirectory: capture
       )
 
       if !raw {
-        printErr("Collecting logs from the last \(timeDescription)...")
+        if let sessionDir = session {
+          printErr("Replaying logs from captured session: \"\(sessionDir)\"")
+        } else {
+          printErr("Collecting logs from the last \(timeDescription)...")
+        }
         if detailed {
           printErr("(Including debug-level logs - this may take a while)")
         }
@@ -163,6 +199,9 @@ struct HomeDiagnostics: AsyncParsableCommand {
         }
         if errorsOnly {
           printErr("(Filtering for errors, faults, and warnings only)")
+        }
+        if let captureDir = capture {
+          printErr("(Capturing raw JSON to: \"\(captureDir)\")")
         }
         printErr("")
       }

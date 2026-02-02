@@ -59,6 +59,13 @@ public struct LogCollector: Sendable {
   /// Used to show progress to the user during long-running operations.
   public let progressLogger: (@Sendable (Int, String) -> Void)?
 
+  /// Optional directory path for capturing raw JSON log data.
+  ///
+  /// When provided, the raw JSON output from `/usr/bin/log` is written to files
+  /// in this directory, one file per subsystem (e.g., `com.apple.HomeKit.json`).
+  /// The directory is created if it doesn't exist.
+  public let captureDirectory: String?
+
   /// Creates a new log collector with specified configuration.
   ///
   /// - Parameters:
@@ -69,6 +76,7 @@ public struct LogCollector: Sendable {
   ///   - debugLogger: Optional debug message callback.
   ///   - errorLogger: Optional error message callback.
   ///   - progressLogger: Optional progress reporting callback.
+  ///   - captureDirectory: Optional directory path for capturing raw JSON log data.
   public init(
     timeInterval: String,
     includeDebug: Bool,
@@ -76,7 +84,8 @@ public struct LogCollector: Sendable {
     dataSource: LogDataSource? = nil,
     debugLogger: (@Sendable (String) -> Void)? = nil,
     errorLogger: (@Sendable (String) -> Void)? = nil,
-    progressLogger: (@Sendable (Int, String) -> Void)? = nil
+    progressLogger: (@Sendable (Int, String) -> Void)? = nil,
+    captureDirectory: String? = nil
   ) {
     self.timeInterval = timeInterval
     self.includeDebug = includeDebug
@@ -85,6 +94,7 @@ public struct LogCollector: Sendable {
     self.debugLogger = debugLogger
     self.errorLogger = errorLogger
     self.progressLogger = progressLogger
+    self.captureDirectory = captureDirectory
   }
 
   public func makeEntryDecoder() -> JSONDecoder {
@@ -278,12 +288,21 @@ public struct LogCollector: Sendable {
             var totalParsed = 0
             var yielded = 0
 
+            // Accumulate JSON objects for capture if directory is specified
+            var capturedObjects: [String] = []
+            let shouldCapture = captureDirectory != nil
+
             outer: for try await line in outputSequence.lines() {
               let completeObjects = parser.processLine(line)
 
               for jsonString in completeObjects {
                 if let limit = entryLimit, yielded >= limit { break outer }
                 totalParsed += 1
+
+                // Capture the raw JSON object if capture is enabled
+                if shouldCapture {
+                  capturedObjects.append(jsonString)
+                }
 
                 if let entry = parseJSONEntryLoggingErrors(jsonString, decoder: decoder) {
                   continuation.yield(entry)
@@ -301,6 +320,15 @@ public struct LogCollector: Sendable {
             }
 
             progressLogger?(totalParsed, subsystem)
+
+            // Write captured JSON to file if capture is enabled
+            if let captureDir = captureDirectory, !capturedObjects.isEmpty {
+              do {
+                try writeCapturedJSON(capturedObjects, subsystem: subsystem, to: captureDir)
+              } catch {
+                errorLogger?("[ERROR] Failed to write captured JSON for \(subsystem): \(error)")
+              }
+            }
           }
 
           if case .exited(let code) = result.terminationStatus, code != 0 {
@@ -447,6 +475,36 @@ private struct JSONStreamParser {
 // MARK: - Private Helpers
 
 private extension LogCollector {
+  /// Writes captured JSON objects to a file in the specified directory.
+  ///
+  /// Creates the directory if it doesn't exist, then writes the JSON objects
+  /// as a properly formatted JSON array to a file named `{subsystem}.json`.
+  ///
+  /// - Parameters:
+  ///   - objects: Array of JSON object strings to write.
+  ///   - subsystem: The subsystem name, used for the filename.
+  ///   - directory: The directory path to write to.
+  /// - Throws: An error if directory creation or file writing fails.
+  func writeCapturedJSON(_ objects: [String], subsystem: String, to directory: String) throws {
+    let fileManager = FileManager.default
+    let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+
+    // Create the directory if it doesn't exist
+    if !fileManager.fileExists(atPath: directory) {
+      try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+      debugLogger?("Created capture directory: \(directory)")
+    }
+
+    // Build the JSON array string
+    let jsonArray = "[\n" + objects.joined(separator: ",\n") + "\n]"
+
+    // Write to file
+    let filename = "\(subsystem).json"
+    let fileURL = directoryURL.appending(path: filename)
+    try jsonArray.write(to: fileURL, atomically: true, encoding: .utf8)
+    debugLogger?("Captured \(objects.count) JSON objects to \(fileURL.path)")
+  }
+
   /// Collects raw logs for a specific subsystem in syslog format using streaming.
   ///
   /// Streams output line-by-line instead of buffering, eliminating memory limits.
