@@ -26,9 +26,6 @@ public struct SystemLogInput: LogInput {
   /// Optional callback for debug logging.
   public let debugLogger: (@Sendable (String) -> Void)?
 
-  /// Optional directory path for capturing raw JSON log data.
-  public let captureDirectory: String?
-
   /// Standard Home/HomeKit subsystems to query.
   public static let defaultHomeKitSubsystems = [
     "com.apple.Home",
@@ -43,19 +40,16 @@ public struct SystemLogInput: LogInput {
   ///   - timeInterval: Time range string (e.g., "14d", "6h").
   ///   - includeDebug: Whether to include debug-level logs.
   ///   - debugLogger: Optional debug message callback.
-  ///   - captureDirectory: Optional directory for capturing raw JSON.
   public init(
     subsystem: String,
     timeInterval: String,
     includeDebug: Bool,
-    debugLogger: (@Sendable (String) -> Void)? = nil,
-    captureDirectory: String? = nil
+    debugLogger: (@Sendable (String) -> Void)? = nil
   ) {
     self.subsystem = subsystem
     self.timeInterval = timeInterval
     self.includeDebug = includeDebug
     self.debugLogger = debugLogger
-    self.captureDirectory = captureDirectory
   }
 
   /// A descriptive name for this input.
@@ -63,17 +57,7 @@ public struct SystemLogInput: LogInput {
 
   /// Returns an async sequence of text lines from this input.
   public func lines() async throws -> AsyncLineSequence<AsyncThrowingStream<UInt8, Error>> {
-    let levelPredicate = includeDebug ? "--info --debug" : "--info"
-
-    let arguments =
-      [
-        "show",
-        "--style", "json",
-        "--last", timeInterval,
-      ] + levelPredicate.components(separatedBy: " ") + [
-        "--predicate", "subsystem == \"\(subsystem)\"",
-      ]
-
+    let arguments = makeArguments()
     debugLogger?("Executing: /usr/bin/log \(arguments.joined(separator: " "))")
 
     let byteStream = AsyncThrowingStream<UInt8, Error> { continuation in
@@ -84,22 +68,11 @@ public struct SystemLogInput: LogInput {
             arguments: Arguments(arguments),
             error: .discarded
           ) { _, outputSequence in
-            var capturedLines: [String] = []
-            let shouldCapture = captureDirectory != nil
-
             for try await line in outputSequence.lines() {
-              if shouldCapture {
-                capturedLines.append(line)
-              }
               for byte in line.utf8 {
                 continuation.yield(byte)
               }
               continuation.yield(UInt8(ascii: "\n"))
-            }
-
-            // Write captured data if capture is enabled
-            if let captureDir = captureDirectory, !capturedLines.isEmpty {
-              try? writeCapturedLines(capturedLines, to: captureDir)
             }
           }
 
@@ -121,19 +94,29 @@ public struct SystemLogInput: LogInput {
     return byteStream.lines
   }
 
-  private func writeCapturedLines(_ lines: [String], to directory: String) throws {
-    let fileManager = FileManager.default
-    let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+  /// Builds the log command arguments for this input.
+  public func makeArguments() -> [String] {
+    let levelPredicate = includeDebug ? "--info --debug" : "--info"
+    return SystemLogInput.makeArguments(
+      subsystem: subsystem,
+      timeInterval: timeInterval,
+      levelPredicate: levelPredicate
+    )
+  }
 
-    if !fileManager.fileExists(atPath: directory) {
-      try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-    }
-
-    let content = lines.joined(separator: "\n")
-    let filename = "\(subsystem).json"
-    let fileURL = directoryURL.appending(path: filename)
-    try content.write(to: fileURL, atomically: true, encoding: .utf8)
-    debugLogger?("Captured JSON to \(fileURL.path)")
+  /// Builds the log command arguments for the provided parameters.
+  public static func makeArguments(
+    subsystem: String,
+    timeInterval: String,
+    levelPredicate: String
+  ) -> [String] {
+    [
+      "show",
+      "--style", "json",
+      "--last", timeInterval,
+    ] + levelPredicate.components(separatedBy: " ") + [
+      "--predicate", "subsystem == \"\(subsystem)\"",
+    ]
   }
 
 
@@ -143,21 +126,18 @@ public struct SystemLogInput: LogInput {
   ///   - timeInterval: Time range string (e.g., "14d", "6h").
   ///   - includeDebug: Whether to include debug-level logs.
   ///   - debugLogger: Optional debug message callback.
-  ///   - captureDirectory: Optional directory for capturing raw JSON.
   /// - Returns: Array of `SystemLogInput` instances for each subsystem.
   public static func makeSystemLogInputs(
     timeInterval: String,
     includeDebug: Bool,
-    debugLogger: (@Sendable (String) -> Void)? = nil,
-    captureDirectory: String? = nil
+    debugLogger: (@Sendable (String) -> Void)? = nil
   ) -> [SystemLogInput] {
     defaultHomeKitSubsystems.map { subsystem in
       SystemLogInput(
         subsystem: subsystem,
         timeInterval: timeInterval,
         includeDebug: includeDebug,
-        debugLogger: debugLogger,
-        captureDirectory: captureDirectory
+        debugLogger: debugLogger
       )
     }
   }

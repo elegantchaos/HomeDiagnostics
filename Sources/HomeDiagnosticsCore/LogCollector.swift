@@ -1,4 +1,11 @@
 import Foundation
+import Subprocess
+
+#if canImport(System)
+  import System
+#else
+  import SystemPackage
+#endif
 
 private struct RawLogEntry: Codable {
   let timestamp: Date
@@ -162,6 +169,58 @@ public struct LogCollector<Input: LogInput>: Sendable {
     }
   }
 
+  /// Captures raw JSON logs for the provided system inputs and writes them to disk.
+  ///
+  /// - Parameters:
+  ///   - inputs: System log inputs to capture.
+  ///   - directory: Directory path to write captured log files.
+  /// - Returns: The total number of lines captured across all inputs.
+  public func captureLogs(from inputs: [Input], to directory: String) async throws -> Int where Input == SystemLogInput {
+    let fileManager = FileManager.default
+    let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+    if !fileManager.fileExists(atPath: directory) {
+      try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    }
+
+    return try await withThrowingTaskGroup(of: Int.self) { group in
+      for input in inputs {
+        group.addTask {
+          let outputURL = directoryURL.appending(path: "\(input.subsystem).json")
+          let arguments = input.makeArguments()
+          let outputPath = FilePath(outputURL.path)
+          let outputFile = try FileDescriptor.open(
+            outputPath,
+            .writeOnly,
+            options: [.create, .truncate],
+            permissions: .ownerReadWrite
+          )
+          defer { try? outputFile.close() }
+
+          let result = try await Subprocess.run(
+            .path(FilePath("/usr/bin/log")),
+            arguments: Arguments(arguments),
+            output: .fileDescriptor(outputFile, closeAfterSpawningProcess: false),
+            error: .discarded
+          )
+
+          if case .exited(let code) = result.terminationStatus, code != 0 {
+            debugLogger?("log command returned non-zero exit code: \(code) for \(input.subsystem)")
+          }
+
+          let lineCount = try countLines(in: outputURL)
+          progressLogger?(lineCount, input.subsystem)
+          return lineCount
+        }
+      }
+
+      var totalLines = 0
+      for try await count in group {
+        totalLines += count
+      }
+      return totalLines
+    }
+  }
+
   // MARK: - JSON Parsing Helpers
 
   /// Parses a JSON list of entries (for testing).
@@ -189,6 +248,15 @@ public struct LogCollector<Input: LogInput>: Sendable {
     }
     let parsed = try decoder.decode(RawLogEntry.self, from: data)
     return LogEntry(parsed)
+  }
+}
+
+/// Helpers for system log capture utilities.
+private extension LogCollector where Input == SystemLogInput {
+  /// Counts the number of lines in a text file.
+  func countLines(in url: URL) throws -> Int {
+    let contents = try String(contentsOf: url, encoding: .utf8)
+    return contents.split(separator: "\n", omittingEmptySubsequences: false).count
   }
 }
 

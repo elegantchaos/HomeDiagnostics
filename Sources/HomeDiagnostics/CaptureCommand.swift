@@ -52,8 +52,7 @@ struct CaptureCommand: AsyncParsableCommand {
       let logInputs = SystemLogInput.makeSystemLogInputs(
         timeInterval: time.timeInterval,
         includeDebug: collection.detailed,
-        debugLogger: { debug($0) },
-        captureDirectory: outputDirectory
+        debugLogger: { debug($0) }
       )
 
       let collector = LogCollector<SystemLogInput>(
@@ -75,12 +74,7 @@ struct CaptureCommand: AsyncParsableCommand {
 
       debug("Beginning log capture")
 
-      // Stream logs to trigger capture (entries are written to files as a side effect)
-      let logStream = collector.collectLogs(from: logInputs)
-      var entryCount = 0
-      for try await _ in logStream {
-        entryCount += 1
-      }
+      let entryCount = try await collector.captureLogs(from: logInputs, to: outputDirectory)
 
       printErr("")
       printErr("Capture complete!")

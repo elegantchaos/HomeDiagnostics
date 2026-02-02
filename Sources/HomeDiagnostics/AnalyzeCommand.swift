@@ -57,8 +57,7 @@ struct AnalyzeCommand: AsyncParsableCommand {
       let logInputs = SystemLogInput.makeSystemLogInputs(
         timeInterval: time.timeInterval,
         includeDebug: collection.detailed,
-        debugLogger: { debug($0) },
-        captureDirectory: nil
+        debugLogger: { debug($0) }
       )
 
       let collector = LogCollector<SystemLogInput>(
