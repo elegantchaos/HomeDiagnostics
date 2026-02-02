@@ -49,17 +49,21 @@ struct CaptureCommand: AsyncParsableCommand {
       printErr("HomeDiagnostics - Capture Mode")
       printErr("==============================\n")
 
-      let collector = LogCollector(
+      let logInputs = makeSystemLogInputs(
         timeInterval: time.timeInterval,
         includeDebug: collection.detailed,
+        debugLogger: { debug($0) },
+        captureDirectory: outputDirectory
+      )
+
+      let collector = LogCollector(
         entryLimit: collection.entries,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
-        progressLogger: { count, subsystem in
-          let shortName = subsystem.replacingOccurrences(of: "com.apple.", with: "")
+        progressLogger: { count, inputName in
+          let shortName = inputName.replacingOccurrences(of: "com.apple.", with: "")
           printErr("  Collected \(count) entries from \(shortName)...")
-        },
-        captureDirectory: outputDirectory
+        }
       )
 
       printErr("Capturing logs from the last \(time.timeDescription)...")
@@ -72,7 +76,7 @@ struct CaptureCommand: AsyncParsableCommand {
       debug("Beginning log capture")
 
       // Stream logs to trigger capture (entries are written to files as a side effect)
-      let logStream = collector.collectLogs()
+      let logStream = collector.collectLogs(from: logInputs)
       var entryCount = 0
       for try await _ in logStream {
         entryCount += 1

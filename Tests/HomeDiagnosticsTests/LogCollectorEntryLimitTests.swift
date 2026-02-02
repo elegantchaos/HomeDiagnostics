@@ -5,8 +5,8 @@ import Testing
 
 @Suite("LogCollector Entry Limit")
 struct LogCollectorEntryLimitTests {
-  @Test("Entry limit is respected in streamLogsForSubsystem with log input")
-  func testEntryLimitWithLogInput() async throws {
+  @Test("Entry limit is respected in streamEntries with string input")
+  func testEntryLimitWithStringInput() async throws {
     let jsonInput = """
       [
           { "timestamp": "2026-01-29 14:30:15.123456+0000", "messageType": "Info", "eventMessage": "A", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" },
@@ -14,15 +14,10 @@ struct LogCollectorEntryLimitTests {
           { "timestamp": "2026-01-29 14:30:17.123456+0000", "messageType": "Info", "eventMessage": "C", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" }
       ]
       """
-    let logInput = LogInput.fromJSON(subsystem: "com.apple.HomeKit", json: jsonInput)
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false,
-      entryLimit: 2,
-      logInputs: [logInput]
-    )
+    let logInput = StringLogInput(json: jsonInput, name: "com.apple.HomeKit")
+    let collector = LogCollector(entryLimit: 2)
     var yielded: [LogEntry] = []
-    for try await entry in collector.streamLogsForSubsystem("com.apple.HomeKit") {
+    for try await entry in collector.streamEntries(from: logInput) {
       yielded.append(entry)
     }
     #expect(yielded.count == 2)
@@ -30,8 +25,8 @@ struct LogCollectorEntryLimitTests {
     #expect(yielded[1].message == "B")
   }
 
-  @Test("Entry limit is respected in streamLogs for all subsystems")
-  func testEntryLimitWithMultipleSubsystems() async throws {
+  @Test("Entry limit is respected in collectLogs for multiple inputs")
+  func testEntryLimitWithMultipleInputs() async throws {
     let jsonInput = """
       [
           { "timestamp": "2026-01-29 14:30:15.123456+0000", "messageType": "Info", "eventMessage": "A", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" },
@@ -39,21 +34,16 @@ struct LogCollectorEntryLimitTests {
           { "timestamp": "2026-01-29 14:30:17.123456+0000", "messageType": "Info", "eventMessage": "C", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" }
       ]
       """
-    let logInputs = [
-      LogInput.fromJSON(subsystem: "com.apple.HomeKit", json: jsonInput),
-      LogInput.fromJSON(subsystem: "com.apple.Home", json: jsonInput),
+    let logInputs: [any LogInput] = [
+      StringLogInput(json: jsonInput, name: "com.apple.HomeKit"),
+      StringLogInput(json: jsonInput, name: "com.apple.Home"),
     ]
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false,
-      entryLimit: 1,
-      logInputs: logInputs
-    )
+    let collector = LogCollector(entryLimit: 1)
     var yielded: [LogEntry] = []
-    for try await entry in collector.streamLogs(subsystems: ["com.apple.HomeKit", "com.apple.Home"]) {
+    for try await entry in collector.collectLogs(from: logInputs) {
       yielded.append(entry)
     }
-    // Should yield 1 entry per subsystem (total 2)
+    // Should yield 1 entry per input (total 2)
     #expect(yielded.count == 2)
   }
 
@@ -66,15 +56,10 @@ struct LogCollectorEntryLimitTests {
           { "timestamp": "2026-01-29 14:30:17.123456+0000", "messageType": "Info", "eventMessage": "C", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" }
       ]
       """
-    let logInput = LogInput.fromJSON(subsystem: "com.apple.HomeKit", json: jsonInput)
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false,
-      entryLimit: nil,
-      logInputs: [logInput]
-    )
+    let logInput = StringLogInput(json: jsonInput, name: "com.apple.HomeKit")
+    let collector = LogCollector(entryLimit: nil)
     var yielded: [LogEntry] = []
-    for try await entry in collector.streamLogsForSubsystem("com.apple.HomeKit") {
+    for try await entry in collector.streamEntries(from: logInput) {
       yielded.append(entry)
     }
     #expect(yielded.count == 3)

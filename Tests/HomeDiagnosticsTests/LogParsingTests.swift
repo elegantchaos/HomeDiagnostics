@@ -11,7 +11,7 @@ struct LogParsingTests {
   /// Tests parsing valid JSON log output
   @Test("Parse valid JSON log entries")
   func testParseValidJSON() async throws {
-    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
+    let collector = LogCollector()
 
     let jsonInput = """
       [
@@ -37,7 +37,7 @@ struct LogParsingTests {
   /// Tests parsing multiple log entries with different types
   @Test("Parse multiple log entries with different message types")
   func testParseMultipleEntries() async throws {
-    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
+    let collector = LogCollector()
 
     let jsonInput = """
       [
@@ -76,7 +76,7 @@ struct LogParsingTests {
   /// Tests mapping messageType to LogLevel correctly
   @Test("Map messageType to LogLevel correctly")
   func testMessageTypeMapping() async throws {
-    let collector = makeTestCollector(timeInterval: "1d", includeDebug: false)
+    let collector = LogCollector()
 
     let testCases: [(messageType: String, expectedLevel: LogLevel)] = [
       ("Debug", .debug),
@@ -109,14 +109,16 @@ struct LogParsingTests {
   /// Tests parsing empty JSON array
   @Test("Parse empty JSON array")
   func testParseEmptyJSON() async throws {
-    let entries = try parseEntries("[]", subsystem: "com.apple.HomeKit")
+    let entries = try await parseEntries("[]")
     #expect(entries.isEmpty)
   }
 
   /// Tests parsing malformed JSON
   @Test("Parse malformed JSON returns empty array")
   func testParseMalformedJSON() async throws {
-    #expect(throws: DecodingError.self) { try parseEntries("{not valid json", subsystem: "com.apple.HomeKit") }
+    // StringLogInput with malformed JSON will just yield no entries (stream parser won't find valid objects)
+    let entries = try await parseEntries("{not valid json")
+    #expect(entries.isEmpty)
   }
 
 
@@ -134,7 +136,7 @@ struct LogParsingTests {
         }
       ]
       """
-    let entries = try parseEntries(jsonInput, subsystem: "com.apple.HomeKit")
+    let entries = try await parseEntries(jsonInput)
     #expect(entries.count == 1)
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
@@ -164,7 +166,7 @@ struct LogParsingTests {
           }
         ]
         """
-      let entries = try parseEntries(jsonInput, subsystem: "com.apple.HomeKit")
+      let entries = try await parseEntries(jsonInput)
       #expect(entries.count == 1)
       #expect(entries[0].process == expectedName)
     }

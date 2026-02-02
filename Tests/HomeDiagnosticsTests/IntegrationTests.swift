@@ -8,9 +8,9 @@ import Testing
 @Suite("Integration Tests")
 struct IntegrationTests {
 
-  /// Tests end-to-end with log input
-  @Test("End-to-end test with log input")
-  func testEndToEndWithLogInput() async throws {
+  /// Tests end-to-end with string log input
+  @Test("End-to-end test with string log input")
+  func testEndToEndWithStringLogInput() async throws {
     let jsonInput = """
       [
         {
@@ -30,15 +30,13 @@ struct IntegrationTests {
       ]
       """
 
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: false
-    )
+    let logInput = StringLogInput(json: jsonInput, name: "com.apple.HomeKit")
+    let collector = LogCollector()
 
-    // Note: collectLogs() calls collectLogsForSubsystem() for 3 subsystems,
-    // so we'll get 6 entries (2 for each subsystem from the mock)
-    // Instead, test parseJSONEntries directly
-    let entries = try collector.parseJSONEntries(jsonInput, subsystem: "com.apple.HomeKit")
+    var entries: [LogEntry] = []
+    for try await entry in collector.streamEntries(from: logInput) {
+      entries.append(entry)
+    }
 
     #expect(entries.count == 2)
     #expect(entries[0].level == .error)
@@ -68,12 +66,13 @@ struct IntegrationTests {
     let jsonData = try Data(contentsOf: url)
     let jsonString = String(data: jsonData, encoding: .utf8)!
 
-    let collector = LogCollector(
-      timeInterval: "1d",
-      includeDebug: true
-    )
+    let logInput = StringLogInput(json: jsonString, name: "com.apple.HomeKit")
+    let collector = LogCollector()
 
-    let entries = try collector.parseJSONEntries(jsonString, subsystem: "com.apple.HomeKit")
+    var entries: [LogEntry] = []
+    for try await entry in collector.streamEntries(from: logInput) {
+      entries.append(entry)
+    }
 
     // Verify we parsed the sample data correctly
     #expect(entries.count == 10)

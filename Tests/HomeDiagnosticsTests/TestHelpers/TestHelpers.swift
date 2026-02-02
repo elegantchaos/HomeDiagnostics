@@ -3,25 +3,19 @@ import HomeDiagnosticsCore
 import Testing
 
 /// Helper for easily creating a LogCollector for tests
-func makeTestCollector(timeInterval: String = "1d", includeDebug: Bool = false, logInputs: [LogInput]? = nil) -> LogCollector {
-  LogCollector(
-    timeInterval: timeInterval,
-    includeDebug: includeDebug,
-    logInputs: logInputs
-  )
+func makeTestCollector(entryLimit: Int? = nil) -> LogCollector {
+  LogCollector(entryLimit: entryLimit)
 }
 
-/// Parses a JSON array string into [LogEntry] for the given subsystem
-func parseEntries(_ json: String, subsystem: String, collector: LogCollector? = nil) throws -> [LogEntry] {
-  let collector = collector ?? makeTestCollector()
-  return try collector.parseJSONEntries(json, subsystem: subsystem)
-}
-
-/// Parses a single JSON object string into LogEntry?
-func parseSingleEntry(_ json: String, collector: LogCollector? = nil) throws -> LogEntry? {
-  let collector = collector ?? makeTestCollector()
-  let decoder = collector.makeEntryDecoder()
-  return try collector.parseJSONEntry(json, decoder: decoder)
+/// Parses a JSON array string into [LogEntry] using StringLogInput
+func parseEntries(_ json: String, name: String = "test") async throws -> [LogEntry] {
+  let collector = makeTestCollector()
+  let input = StringLogInput(json: json, name: name)
+  var entries: [LogEntry] = []
+  for try await entry in collector.streamEntries(from: input) {
+    entries.append(entry)
+  }
+  return entries
 }
 
 /// Asserts that a log entry matches expected properties

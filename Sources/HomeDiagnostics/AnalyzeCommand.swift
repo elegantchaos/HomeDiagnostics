@@ -53,14 +53,19 @@ struct AnalyzeCommand: AsyncParsableCommand {
         printErr("==========================================\n")
       }
 
-      let collector = LogCollector(
+      let logInputs = makeSystemLogInputs(
         timeInterval: time.timeInterval,
         includeDebug: collection.detailed,
+        debugLogger: { debug($0) },
+        captureDirectory: nil
+      )
+
+      let collector = LogCollector(
         entryLimit: collection.entries,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
-        progressLogger: { count, subsystem in
-          let shortName = subsystem.replacingOccurrences(of: "com.apple.", with: "")
+        progressLogger: { count, inputName in
+          let shortName = inputName.replacingOccurrences(of: "com.apple.", with: "")
           printErr("  Collected \(count) entries from \(shortName)...")
         }
       )
@@ -83,14 +88,17 @@ struct AnalyzeCommand: AsyncParsableCommand {
 
       // Raw mode: output unprocessed logs directly
       if raw {
-        let rawOutput = try await collector.collectRawLogs()
+        let rawOutput = try await collectRawLogs(
+          timeInterval: time.timeInterval,
+          includeDebug: collection.detailed
+        )
         print(rawOutput)
         info("HomeDiagnostics raw output completed successfully")
         return
       }
 
       // Normal mode: parse and analyze logs
-      let logStream = collector.collectLogs()
+      let logStream = collector.collectLogs(from: logInputs)
 
       // Collect entity annotations from HomeKit API if requested
       let additionalAnnotations = await collectEntityAnnotations(entitySource: output.entitySource)
@@ -121,4 +129,62 @@ struct AnalyzeCommand: AsyncParsableCommand {
       throw error
     }
   }
+}
+
+/// Collects raw logs in syslog format (for --raw mode).
+private func collectRawLogs(timeInterval: String, includeDebug: Bool) async throws -> String {
+  var allOutput: [String] = []
+
+  for subsystem in defaultHomeKitSubsystems {
+    do {
+      debug("Collecting raw logs for subsystem: \(subsystem)")
+      let output = try await collectRawLogsForSubsystem(
+        subsystem,
+        timeInterval: timeInterval,
+        includeDebug: includeDebug
+      )
+      debug("Collected \(output.count) characters from \(subsystem)")
+
+      if !output.isEmpty {
+        allOutput.append(output)
+      }
+    } catch {
+      printErr("[ERROR] Failed to collect logs for subsystem \(subsystem): \(error)")
+    }
+  }
+
+  return allOutput.joined(separator: "\n")
+}
+
+import Subprocess
+
+#if canImport(System)
+  import System
+#else
+  import SystemPackage
+#endif
+
+private func collectRawLogsForSubsystem(
+  _ subsystem: String,
+  timeInterval: String,
+  includeDebug: Bool
+) async throws -> String {
+  let levelPredicate = includeDebug ? "--info --debug" : "--info"
+
+  let arguments = [
+    "show",
+    "--style", "syslog",
+    "--last", timeInterval,
+  ] + levelPredicate.components(separatedBy: " ") + [
+    "--predicate", "subsystem == \"\(subsystem)\"",
+  ]
+
+  let result = try await Subprocess.run(
+    .path(FilePath("/usr/bin/log")),
+    arguments: Arguments(arguments),
+    output: .string(limit: 100 * 1024 * 1024),
+    error: .discarded
+  )
+
+  return result.standardOutput ?? ""
 }

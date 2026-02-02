@@ -36,16 +36,14 @@ struct ReplayCommand: AsyncParsableCommand {
       printErr("=============================\n")
 
       let capturedSession = CapturedSession(directoryPath: directory)
+      let logInputs = capturedSession.logInputs()
 
       let collector = LogCollector(
-        timeInterval: "14d",  // Time interval is ignored when using log inputs
-        includeDebug: collection.detailed,
         entryLimit: collection.entries,
-        logInputs: capturedSession.logInputs(),
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
-        progressLogger: { count, subsystem in
-          let shortName = subsystem.replacingOccurrences(of: "com.apple.", with: "")
+        progressLogger: { count, inputName in
+          let shortName = inputName.replacingOccurrences(of: "com.apple.", with: "")
           printErr("  Loaded \(count) entries from \(shortName)...")
         }
       )
@@ -62,7 +60,7 @@ struct ReplayCommand: AsyncParsableCommand {
       debug("Beginning log replay")
 
       // Parse and analyze logs from captured files
-      let logStream = collector.collectLogs()
+      let logStream = collector.collectLogs(from: logInputs)
 
       // Collect entity annotations from HomeKit API if requested
       let additionalAnnotations = await collectEntityAnnotations(entitySource: output.entitySource)
