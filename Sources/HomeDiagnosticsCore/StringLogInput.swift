@@ -1,5 +1,4 @@
 import Foundation
-import Subprocess
 
 /// Log input that provides data from an in-memory string.
 ///

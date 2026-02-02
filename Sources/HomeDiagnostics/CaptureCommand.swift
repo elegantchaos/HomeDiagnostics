@@ -59,9 +59,9 @@ struct CaptureCommand: AsyncParsableCommand {
         entryLimit: collection.entries,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
-        progressLogger: { count, inputName in
+        progressLogger: { _, inputName in
           let shortName = inputName.replacingOccurrences(of: "com.apple.", with: "")
-          printErr("  Collected \(count) entries from \(shortName)...")
+          printErr("  Capture entries from \(shortName)...")
         }
       )
 

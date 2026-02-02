@@ -1,7 +1,6 @@
 import ArgumentParser
 import Foundation
 import HomeDiagnosticsCore
-import Subprocess
 
 /// Analyzes logs from the macOS unified logging system.
 ///
@@ -138,11 +137,13 @@ private func collectRawLogs(timeInterval: String, includeDebug: Bool) async thro
   for subsystem in LogCollector<SystemLogInput>.defaultHomeKitSubsystems {
     do {
       debug("Collecting raw logs for subsystem: \(subsystem)")
-      let output = try await collectRawLogsForSubsystem(
-        subsystem,
+      let runner = SystemLogRunner(
+        subsystem: subsystem,
         timeInterval: timeInterval,
-        includeDebug: includeDebug
+        includeDebug: includeDebug,
+        debugLogger: { debug($0) }
       )
+      let output = try await runner.rawLogs()
       debug("Collected \(output.count) characters from \(subsystem)")
 
       if !output.isEmpty {
@@ -154,37 +155,4 @@ private func collectRawLogs(timeInterval: String, includeDebug: Bool) async thro
   }
 
   return allOutput.joined(separator: "\n")
-}
-
-
-#if canImport(System)
-  import System
-#else
-  import SystemPackage
-#endif
-
-private func collectRawLogsForSubsystem(
-  _ subsystem: String,
-  timeInterval: String,
-  includeDebug: Bool
-) async throws -> String {
-  let levelPredicate = includeDebug ? "--info --debug" : "--info"
-
-  let arguments =
-    [
-      "show",
-      "--style", "syslog",
-      "--last", timeInterval,
-    ] + levelPredicate.components(separatedBy: " ") + [
-      "--predicate", "subsystem == \"\(subsystem)\"",
-    ]
-
-  let result = try await Subprocess.run(
-    .path(FilePath("/usr/bin/log")),
-    arguments: Arguments(arguments),
-    output: .string(limit: 100 * 1024 * 1024),
-    error: .discarded
-  )
-
-  return result.standardOutput ?? ""
 }

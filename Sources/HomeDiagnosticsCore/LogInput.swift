@@ -1,5 +1,4 @@
 import Foundation
-import Subprocess
 
 /// A source of log data that provides an async byte stream.
 ///

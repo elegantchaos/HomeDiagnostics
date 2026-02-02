@@ -1,11 +1,6 @@
 import Foundation
 import Subprocess
-
-#if canImport(System)
-  import System
-#else
-  import SystemPackage
-#endif
+import System
 
 /// Runs the macOS unified log subprocess for a subsystem.
 public struct SystemLogRunner: Sendable {
@@ -45,6 +40,28 @@ public struct SystemLogRunner: Sendable {
     ] + levelPredicate.components(separatedBy: " ") + [
       "--predicate", "subsystem == \"\(subsystem)\"",
     ]
+  }
+
+  /// Returns the syslog output for this runner.
+  public func rawLogs() async throws -> String {
+    let levelPredicate = includeDebug ? "--info --debug" : "--info"
+    let arguments =
+      [
+        "show",
+        "--style", "syslog",
+        "--last", timeInterval,
+      ] + levelPredicate.components(separatedBy: " ") + [
+        "--predicate", "subsystem == \"\(subsystem)\"",
+      ]
+
+    let result = try await Subprocess.run(
+      .path(FilePath("/usr/bin/log")),
+      arguments: Arguments(arguments),
+      output: .string(limit: 100 * 1024 * 1024),
+      error: .discarded
+    )
+
+    return result.standardOutput ?? ""
   }
 
   /// Returns an async byte stream from the log subprocess.

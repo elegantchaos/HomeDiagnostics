@@ -1,5 +1,4 @@
 import Foundation
-import Subprocess
 
 /// Log input that reads from a JSON file on disk.
 ///
