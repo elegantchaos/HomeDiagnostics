@@ -84,7 +84,8 @@ public struct LogAnalyzer {
 
     // Merge all annotations from all collectors, prepending additional annotations
     let allAnnotations = additionalAnnotations + allCollectors.flatMap { $0.annotations }
-    let nameResolver = EntityResolver(annotations: allAnnotations)
+    var nameResolver = EntityResolver(annotations: allAnnotations)
+    nameResolver.resolve()
     let problematicEntries = mergedAllEntries.filter { $0.isProblematic }
     return LogAnalysis(
       totalEntries: mergedTotalCount,

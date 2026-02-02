@@ -32,12 +32,30 @@ public struct EntityResolver: Sendable {
   ///
   /// - Parameter annotations: Array of entity annotations from various sources.
   public init(annotations: [EntityAnnotation]) {
-    for annotation in annotations {
+    for annotation in Self.orderedAnnotations(annotations) {
       switch annotation.kind {
         case .name(let uuid, let name, let type):
           guard !name.isEmpty else { break }
           let nameKey = Self.nameKey(name: name, type: type)
-          let entity = uuidToEntity[uuid] ?? nameToEntity[nameKey] ?? Entity(type: type)
+          let existingByUUID = uuidToEntity[uuid]
+          let existingByName = nameToEntity[nameKey]
+          let entity: Entity
+          if let existingByUUID, let existingByName, existingByUUID !== existingByName {
+            existingByName.uuids.formUnion(existingByUUID.uuids)
+            existingByName.matterIDs.formUnion(existingByUUID.matterIDs)
+            existingByName.spiIDs.formUnion(existingByUUID.spiIDs)
+            if existingByName.owner == nil { existingByName.owner = existingByUUID.owner }
+            if existingByName.type == .unknown && existingByUUID.type != .unknown {
+              existingByName.type = existingByUUID.type
+            }
+            allEntities.remove(existingByUUID)
+            for mergedUUID in existingByUUID.uuids {
+              uuidToEntity[mergedUUID] = existingByName
+            }
+            entity = existingByName
+          } else {
+            entity = existingByUUID ?? existingByName ?? Entity(type: type)
+          }
           entity.uuids.insert(uuid)
           // Check for name conflict
           if !entity.name.isEmpty && entity.name != name {
@@ -52,7 +70,25 @@ public struct EntityResolver: Sendable {
         case .uuid(let name, let uuid, let type):
           guard !name.isEmpty else { break }
           let nameKey = Self.nameKey(name: name, type: type)
-          let entity = uuidToEntity[uuid] ?? nameToEntity[nameKey] ?? Entity(type: type)
+          let existingByUUID = uuidToEntity[uuid]
+          let existingByName = nameToEntity[nameKey]
+          let entity: Entity
+          if let existingByUUID, let existingByName, existingByUUID !== existingByName {
+            existingByName.uuids.formUnion(existingByUUID.uuids)
+            existingByName.matterIDs.formUnion(existingByUUID.matterIDs)
+            existingByName.spiIDs.formUnion(existingByUUID.spiIDs)
+            if existingByName.owner == nil { existingByName.owner = existingByUUID.owner }
+            if existingByName.type == .unknown && existingByUUID.type != .unknown {
+              existingByName.type = existingByUUID.type
+            }
+            allEntities.remove(existingByUUID)
+            for mergedUUID in existingByUUID.uuids {
+              uuidToEntity[mergedUUID] = existingByName
+            }
+            entity = existingByName
+          } else {
+            entity = existingByUUID ?? existingByName ?? Entity(type: type)
+          }
           entity.uuids.insert(uuid)
           // Check for name conflict
           if !entity.name.isEmpty && entity.name != name {
@@ -91,6 +127,44 @@ public struct EntityResolver: Sendable {
     }
   }
 
+  /// Returns annotations in a deterministic processing order.
+  ///
+  /// Prioritizes name registration before identity links and ownership,
+  /// so entities are merged before attaching child relationships.
+  ///
+  /// - Parameter annotations: The annotations to order.
+  /// - Returns: An ordered list of annotations.
+  private static func orderedAnnotations(_ annotations: [EntityAnnotation]) -> [EntityAnnotation] {
+    annotations.sorted { lhs, rhs in
+      let lhsKey = annotationSortKey(lhs)
+      let rhsKey = annotationSortKey(rhs)
+      return lhsKey < rhsKey
+    }
+  }
+
+  /// Returns a stable sort key for an annotation.
+  ///
+  /// - Parameter annotation: The annotation to key.
+  /// - Returns: A tuple suitable for ordering annotations.
+  private static func annotationSortKey(_ annotation: EntityAnnotation) -> (Int, String) {
+    switch annotation.kind {
+      case .name(let uuid, let name, let type):
+        return (0, "name|\(type.rawValue)|\(name.lowercased())|\(uuid)")
+      case .uuid(let name, let uuid, let type):
+        return (1, "uuid|\(type.rawValue)|\(name.lowercased())|\(uuid)")
+      case .register(let uuid, let type):
+        return (2, "register|\(type.rawValue)|\(uuid)")
+      case .spiID(let uuid, let spiID):
+        return (3, "spiID|\(uuid)|\(spiID)")
+      case .matterID(let uuid, let matterID):
+        return (4, "matterID|\(uuid)|\(matterID)")
+      case .owner(let childUUID, let ownerUUID):
+        return (5, "owner|\(childUUID)|\(ownerUUID)")
+      case .ownerByName(let childUUID, let ownerName, let ownerType):
+        return (6, "ownerByName|\(ownerType.rawValue)|\(ownerName.lowercased())|\(childUUID)")
+    }
+  }
+
   /// Resolves and merges entities, ensuring all UUIDs and home relationships are fully connected.
   ///
   /// Performs deduplication by merging entities with shared UUIDs. When merging entities
@@ -121,14 +195,31 @@ public struct EntityResolver: Sendable {
     uuidToEntity = mergedEntities
     allEntities = Set(mergedEntities.values)
 
-    // 2. Establish ownership relationships now that all entities are created
+    // 2. Merge home entities that are linked via spiID
+    for entity in allEntities where entity.type == .home {
+      for spiID in entity.spiIDs {
+        guard let spiEntity = uuidToEntity[spiID], spiEntity !== entity else { continue }
+        entity.uuids.formUnion(spiEntity.uuids)
+        entity.matterIDs.formUnion(spiEntity.matterIDs)
+        entity.spiIDs.formUnion(spiEntity.spiIDs)
+        if entity.name.isEmpty { entity.name = spiEntity.name }
+        if entity.owner == nil { entity.owner = spiEntity.owner }
+        if entity.type == .unknown && spiEntity.type != .unknown { entity.type = spiEntity.type }
+        for mergedUUID in spiEntity.uuids {
+          uuidToEntity[mergedUUID] = entity
+        }
+        allEntities.remove(spiEntity)
+      }
+    }
+
+    // 3. Establish ownership relationships now that all entities are created
     for (childUUID, ownerUUID) in ownershipAnnotations {
       if let child = uuidToEntity[childUUID], let owner = uuidToEntity[ownerUUID] {
         child.owner = owner
       }
     }
 
-    // 3. Establish name-based ownership relationships
+    // 4. Establish name-based ownership relationships
     for (childUUID, ownerName, ownerType) in nameBasedOwnershipAnnotations {
       if let child = uuidToEntity[childUUID] {
         let nameKey = Self.nameKey(name: ownerName, type: ownerType)

@@ -169,7 +169,7 @@ public struct LogCollector<Input: LogInput>: Sendable {
                 yielded += 1
               }
 
-              if totalParsed % 1000 == 0 {
+              if totalParsed % 5000 == 0 {
                 progressLogger?(totalParsed, inputName)
               }
             }

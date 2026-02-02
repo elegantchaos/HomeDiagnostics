@@ -403,24 +403,33 @@ private extension OutputFormatter {
     output += "Discovered \(resolver.allEntities.count) entities.\n"
     output += "Discovered \(resolver.namedUUIDs.count) named UUID(s):\n\n"
 
-    let (homeToEntities, standaloneHomes, unknownHomeEntities) = resolver.entitiesByHome()
+    let (homeToEntities, _, unknownHomeEntities) = resolver.entitiesByHome()
 
-    // Get all home UUIDs (both with and without children)
-    let allHomeUUIDs = Set(homeToEntities.keys).union(standaloneHomes).sorted()
+    let homes = resolver.allEntities.filter { $0.type == .home }
+    let sortedHomes = homes.sorted { lhs, rhs in
+      let lhsName = lhs.name.lowercased()
+      let rhsName = rhs.name.lowercased()
+      if lhsName != rhsName {
+        return lhsName < rhsName
+      }
+      let lhsID = lhs.uuids.sorted().first ?? ""
+      let rhsID = rhs.uuids.sorted().first ?? ""
+      return lhsID < rhsID
+    }
 
-    // Display each home with its entities
-    for homeUUID in allHomeUUIDs {
-      // Display home
-      guard let homeEntity = resolver.entity(for: homeUUID) else { continue }
-      let homePrefix = String(homeUUID.prefix(8))
+    for homeEntity in sortedHomes {
+      let homeUUIDs = homeEntity.uuids.sorted()
+      let primaryUUID = homeUUIDs.first ?? ""
+      let homePrefix = String(primaryUUID.prefix(8))
+      let aliasPrefixes = homeUUIDs.dropFirst().map { String($0.prefix(8)) }
 
       if !homeEntity.name.isEmpty {
-        output +=
-          "\(TerminalColor.bold)\(homeEntity.name)\(TerminalColor.reset) "
+        output += "\(TerminalColor.bold)\(homeEntity.name)\(TerminalColor.reset) "
         output += "\(TerminalColor.gray)(ID: \(homePrefix)...)\(TerminalColor.reset)"
-
-        // Show Matter ID if available
-        if let matterID = resolver.matterID(for: homeUUID) {
+        if !aliasPrefixes.isEmpty {
+          output += " \(TerminalColor.gray)[Aliases: \(aliasPrefixes.joined(separator: ", "))]\(TerminalColor.reset)"
+        }
+        if let matterID = resolver.matterID(for: primaryUUID) {
           output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
         }
         output += "\n"
@@ -429,8 +438,14 @@ private extension OutputFormatter {
         output += "\(TerminalColor.gray)(ID: \(homePrefix)...)\(TerminalColor.reset)\n"
       }
 
-      // Display entities belonging to this home
-      if let entityUUIDs = homeToEntities[homeUUID], !entityUUIDs.isEmpty {
+      var entityUUIDs: Set<String> = []
+      for homeUUID in homeUUIDs {
+        if let childUUIDs = homeToEntities[homeUUID] {
+          entityUUIDs.formUnion(childUUIDs)
+        }
+      }
+
+      if !entityUUIDs.isEmpty {
         for entityUUID in entityUUIDs {
           guard let entity = resolver.entity(for: entityUUID) else { continue }
           let typeLabel = entity.type == .actionSet ? "Scene" : "Device"
@@ -440,7 +455,6 @@ private extension OutputFormatter {
           output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
           output += entity.name
 
-          // Show Matter ID if available
           if let matterID = resolver.matterID(for: entityUUID) {
             output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
           }
