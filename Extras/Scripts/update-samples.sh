@@ -1,0 +1,3 @@
+log show --style json --last 60 --predicate 'subsystem == "com.apple.HomeKit"' --info --debug > Tests/HomeDiagnosticsTests/Resources/sample_homekit.json
+log show --style json --last 60 --predicate 'subsystem == "com.apple.Home"' --info --debug > Tests/HomeDiagnosticsTests/Resources/sample_home.json
+log show --style json --last 60 --predicate 'subsystem == "com.apple.homed"' --info --debug > Tests/HomeDiagnosticsTests/Resources/sample_homed.json
