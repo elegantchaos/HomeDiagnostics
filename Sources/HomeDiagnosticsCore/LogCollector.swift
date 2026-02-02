@@ -26,6 +26,45 @@ private extension LogEntry {
   }
 }
 
+/// A source of log data for a specific subsystem, provided as an async stream of text lines.
+///
+/// Used for testing and replay functionality to inject log data without executing system commands.
+public struct LogInput: Sendable {
+  /// The subsystem identifier (e.g., "com.apple.HomeKit").
+  public let subsystem: String
+  
+  /// A closure that produces an async stream of text lines (JSON log output).
+  public let lines: @Sendable () -> AsyncThrowingStream<String, Error>
+  
+  /// Creates a new log input for a subsystem.
+  ///
+  /// - Parameters:
+  ///   - subsystem: The subsystem identifier.
+  ///   - lines: A closure that returns an async stream of text lines.
+  public init(subsystem: String, lines: @escaping @Sendable () -> AsyncThrowingStream<String, Error>) {
+    self.subsystem = subsystem
+    self.lines = lines
+  }
+  
+  /// Creates a log input from a complete JSON string (convenience for testing).
+  ///
+  /// Splits the JSON into lines and streams them.
+  ///
+  /// - Parameters:
+  ///   - subsystem: The subsystem identifier.
+  ///   - json: A complete JSON string containing log entries.
+  public static func fromJSON(subsystem: String, json: String) -> LogInput {
+    LogInput(subsystem: subsystem) {
+      AsyncThrowingStream { continuation in
+        for line in json.components(separatedBy: "\n") {
+          continuation.yield(line)
+        }
+        continuation.finish()
+      }
+    }
+  }
+}
+
 /// Collects and parses logs from the macOS unified logging system.
 ///
 /// Queries multiple Home/HomeKit subsystems and aggregates their log entries.
@@ -41,11 +80,11 @@ public struct LogCollector: Sendable {
   /// Maximum number of log entries to read from each log (nil = unlimited)
   public let entryLimit: Int?
 
-  /// Optional data source for dependency injection during testing.
+  /// Optional test/replay log inputs mapped by subsystem name.
   ///
-  /// When `nil`, uses the system log command. When provided, uses the
-  /// injected source for testing without executing system commands.
-  public let dataSource: LogDataSource?
+  /// When provided, these inputs are used instead of querying the system log.
+  /// Each input provides an async stream of text lines for a specific subsystem.
+  private let logInputs: [String: LogInput]?
 
   /// Callback for debug logging (required to integrate with main executable logging).
   public let debugLogger: (@Sendable (String) -> Void)?
@@ -72,7 +111,7 @@ public struct LogCollector: Sendable {
   ///   - timeInterval: Time range string (e.g., "14d", "6h").
   ///   - includeDebug: Whether to include debug-level logs.
   ///   - entryLimit: Maximum number of log entries to read from each log (nil = unlimited).
-  ///   - dataSource: Optional data source for testing.
+  ///   - logInputs: Optional array of log inputs for testing/replay (one per subsystem).
   ///   - debugLogger: Optional debug message callback.
   ///   - errorLogger: Optional error message callback.
   ///   - progressLogger: Optional progress reporting callback.
@@ -81,7 +120,7 @@ public struct LogCollector: Sendable {
     timeInterval: String,
     includeDebug: Bool,
     entryLimit: Int? = nil,
-    dataSource: LogDataSource? = nil,
+    logInputs: [LogInput]? = nil,
     debugLogger: (@Sendable (String) -> Void)? = nil,
     errorLogger: (@Sendable (String) -> Void)? = nil,
     progressLogger: (@Sendable (Int, String) -> Void)? = nil,
@@ -90,7 +129,7 @@ public struct LogCollector: Sendable {
     self.timeInterval = timeInterval
     self.includeDebug = includeDebug
     self.entryLimit = entryLimit
-    self.dataSource = dataSource
+    self.logInputs = logInputs?.reduce(into: [:]) { $0[$1.subsystem] = $1 }
     self.debugLogger = debugLogger
     self.errorLogger = errorLogger
     self.progressLogger = progressLogger
@@ -251,16 +290,36 @@ public struct LogCollector: Sendable {
     AsyncThrowingStream { continuation in
       let task = Task.detached(priority: nil) { [subsystem] in
         do {
-          // If we have a test data source, simulate streaming by parsing all at once
-          if let dataSource = dataSource {
-            let output = try await dataSource.fetchJSONLogs(subsystem: subsystem)
-            let entries = try! parseJSONEntries(output, subsystem: subsystem)
+          // If we have a log input for this subsystem, stream from it
+          if let logInput = logInputs?[subsystem] {
+            let decoder = makeEntryDecoder()
+            var parser = JSONStreamParser()
+            var totalParsed = 0
             var yielded = 0
-            for entry in entries {
-              if let limit = entryLimit, yielded >= limit { break }
-              continuation.yield(entry)
-              yielded += 1
+            
+            outer: for try await line in logInput.lines() {
+              let completeObjects = parser.processLine(line)
+              
+              for jsonString in completeObjects {
+                if let limit = entryLimit, yielded >= limit { break outer }
+                totalParsed += 1
+                
+                if let entry = parseJSONEntryLoggingErrors(jsonString, decoder: decoder) {
+                  continuation.yield(entry)
+                  yielded += 1
+                }
+                
+                if totalParsed % 1000 == 0 {
+                  progressLogger?(totalParsed, subsystem)
+                }
+              }
             }
+            
+            if let remaining = parser.finalize() {
+              debugLogger?("Warning: Incomplete JSON object at end of stream: \(remaining.prefix(100))...")
+            }
+            
+            progressLogger?(totalParsed, subsystem)
             continuation.finish()
             return
           }

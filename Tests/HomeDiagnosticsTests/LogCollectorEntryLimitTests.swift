@@ -5,8 +5,8 @@ import Testing
 
 @Suite("LogCollector Entry Limit")
 struct LogCollectorEntryLimitTests {
-  @Test("Entry limit is respected in streamLogsForSubsystem with mock data source")
-  func testEntryLimitWithMockDataSource() async throws {
+  @Test("Entry limit is respected in streamLogsForSubsystem with log input")
+  func testEntryLimitWithLogInput() async throws {
     let jsonInput = """
       [
           { "timestamp": "2026-01-29 14:30:15.123456+0000", "messageType": "Info", "eventMessage": "A", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" },
@@ -14,12 +14,12 @@ struct LogCollectorEntryLimitTests {
           { "timestamp": "2026-01-29 14:30:17.123456+0000", "messageType": "Info", "eventMessage": "C", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" }
       ]
       """
-    let mockDataSource = MockLogDataSource(jsonData: jsonInput)
+    let logInput = LogInput.fromJSON(subsystem: "com.apple.HomeKit", json: jsonInput)
     let collector = LogCollector(
       timeInterval: "1d",
       includeDebug: false,
       entryLimit: 2,
-      dataSource: mockDataSource
+      logInputs: [logInput]
     )
     var yielded: [LogEntry] = []
     for try await entry in collector.streamLogsForSubsystem("com.apple.HomeKit") {
@@ -39,12 +39,15 @@ struct LogCollectorEntryLimitTests {
           { "timestamp": "2026-01-29 14:30:17.123456+0000", "messageType": "Info", "eventMessage": "C", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" }
       ]
       """
-    let mockDataSource = MockLogDataSource(jsonData: jsonInput)
+    let logInputs = [
+      LogInput.fromJSON(subsystem: "com.apple.HomeKit", json: jsonInput),
+      LogInput.fromJSON(subsystem: "com.apple.Home", json: jsonInput),
+    ]
     let collector = LogCollector(
       timeInterval: "1d",
       includeDebug: false,
       entryLimit: 1,
-      dataSource: mockDataSource
+      logInputs: logInputs
     )
     var yielded: [LogEntry] = []
     for try await entry in collector.streamLogs(subsystems: ["com.apple.HomeKit", "com.apple.Home"]) {
@@ -63,12 +66,12 @@ struct LogCollectorEntryLimitTests {
           { "timestamp": "2026-01-29 14:30:17.123456+0000", "messageType": "Info", "eventMessage": "C", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" }
       ]
       """
-    let mockDataSource = MockLogDataSource(jsonData: jsonInput)
+    let logInput = LogInput.fromJSON(subsystem: "com.apple.HomeKit", json: jsonInput)
     let collector = LogCollector(
       timeInterval: "1d",
       includeDebug: false,
       entryLimit: nil,
-      dataSource: mockDataSource
+      logInputs: [logInput]
     )
     var yielded: [LogEntry] = []
     for try await entry in collector.streamLogsForSubsystem("com.apple.HomeKit") {

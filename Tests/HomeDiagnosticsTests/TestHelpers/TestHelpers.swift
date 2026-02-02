@@ -3,11 +3,11 @@ import HomeDiagnosticsCore
 import Testing
 
 /// Helper for easily creating a LogCollector for tests
-func makeTestCollector(timeInterval: String = "1d", includeDebug: Bool = false, dataSource: LogDataSource? = nil) -> LogCollector {
+func makeTestCollector(timeInterval: String = "1d", includeDebug: Bool = false, logInputs: [LogInput]? = nil) -> LogCollector {
   LogCollector(
     timeInterval: timeInterval,
     includeDebug: includeDebug,
-    dataSource: dataSource
+    logInputs: logInputs
   )
 }
 

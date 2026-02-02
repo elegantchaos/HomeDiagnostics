@@ -8,9 +8,9 @@ import Testing
 @Suite("Integration Tests")
 struct IntegrationTests {
 
-  /// Tests end-to-end with mock data source
-  @Test("End-to-end test with mock data source")
-  func testEndToEndWithMockDataSource() async throws {
+  /// Tests end-to-end with log input
+  @Test("End-to-end test with log input")
+  func testEndToEndWithLogInput() async throws {
     let jsonInput = """
       [
         {
@@ -30,12 +30,9 @@ struct IntegrationTests {
       ]
       """
 
-    let mockDataSource = MockLogDataSource(jsonData: jsonInput)
-
     let collector = LogCollector(
       timeInterval: "1d",
-      includeDebug: false,
-      dataSource: mockDataSource
+      includeDebug: false
     )
 
     // Note: collectLogs() calls collectLogsForSubsystem() for 3 subsystems,

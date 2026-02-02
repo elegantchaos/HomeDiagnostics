@@ -35,13 +35,13 @@ struct ReplayCommand: AsyncParsableCommand {
       printErr("HomeDiagnostics - Replay Mode")
       printErr("=============================\n")
 
-      let dataSource = CapturedSessionDataSource(directoryPath: directory)
+      let capturedSession = CapturedSession(directoryPath: directory)
 
       let collector = LogCollector(
-        timeInterval: "14d",  // Time interval is ignored when using a data source
+        timeInterval: "14d",  // Time interval is ignored when using log inputs
         includeDebug: collection.detailed,
         entryLimit: collection.entries,
-        dataSource: dataSource,
+        logInputs: capturedSession.logInputs(),
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
         progressLogger: { count, subsystem in
