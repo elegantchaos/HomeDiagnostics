@@ -32,6 +32,7 @@ public struct EntityCollector: Sendable {
   public mutating func add(entry: LogEntry) {
     let message = entry.message
     extractPaths(from: message)
+    extractBracketedNames(from: message)
     extractActionSets(from: message)
     extractHomeLists(from: message)
     extractHMDHomeObjects(from: message)
@@ -65,6 +66,17 @@ public struct EntityCollector: Sendable {
     return true
   }
 
+  /// Returns whether a name likely represents a system context rather than a home.
+  private func isSystemContextName(_ name: String) -> Bool {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let hasSpaces = trimmed.contains(" ")
+    if hasSpaces {
+      return false
+    }
+    let systemPrefixPattern = /^(HMD|HM|HMF)[A-Z]/
+    return trimmed.contains(systemPrefixPattern)
+  }
+
   private mutating func extractPaths(from message: String) {
     let pathPattern = /\[([^\/\]]+)\/([^\/\]]+)\/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\]/
     for match in message.matches(of: pathPattern) {
@@ -75,8 +87,20 @@ public struct EntityCollector: Sendable {
         annotations.append(EntityAnnotation(kind: .name(uuid: uuid, name: deviceName, type: .device)))
       }
       // Create ownership by home name if the home name is valid
-      if isValidHumanReadableName(homeName) {
+      if isValidHumanReadableName(homeName) && !isSystemContextName(homeName) {
         annotations.append(EntityAnnotation(kind: .ownerByName(childUUID: uuid, ownerName: homeName, ownerType: .home)))
+      }
+    }
+  }
+
+  /// Extracts name/UUID pairs from bracketed messages without a home prefix.
+  private mutating func extractBracketedNames(from message: String) {
+    let bracketPattern = /\[([^\/\]]+)\/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\]/
+    for match in message.matches(of: bracketPattern) {
+      let name = trimName(String(match.1))
+      let uuid = normalizeUUID(String(match.2))
+      if isValidHumanReadableName(name) {
+        annotations.append(EntityAnnotation(kind: .name(uuid: uuid, name: name, type: .unknown)))
       }
     }
   }

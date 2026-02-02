@@ -63,7 +63,9 @@ public struct EntityResolver: Sendable {
           } else if entity.name.isEmpty {
             entity.name = name
           }
-          entity.type = type
+          if type != .unknown || entity.type == .unknown {
+            entity.type = type
+          }
           uuidToEntity[uuid] = entity
           nameToEntity[nameKey] = entity
           allEntities.insert(entity)
@@ -96,7 +98,9 @@ public struct EntityResolver: Sendable {
           } else if entity.name.isEmpty {
             entity.name = name
           }
-          entity.type = type
+          if type != .unknown || entity.type == .unknown {
+            entity.type = type
+          }
           uuidToEntity[uuid] = entity
           nameToEntity[nameKey] = entity
           allEntities.insert(entity)
