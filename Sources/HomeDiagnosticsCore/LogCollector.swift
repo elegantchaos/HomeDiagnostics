@@ -22,7 +22,7 @@ private extension LogEntry {
 ///
 /// Processes multiple inputs in parallel and yields `LogEntry` objects as an async stream.
 /// Supports entry limits and progress reporting.
-public struct LogCollector: Sendable {
+public struct LogCollector<Input: LogInput>: Sendable {
   /// Maximum number of log entries to read from each input (nil = unlimited).
   public let entryLimit: Int?
 
@@ -79,7 +79,7 @@ public struct LogCollector: Sendable {
   ///
   /// - Parameter inputs: The log inputs to process.
   /// - Returns: An async throwing stream of `LogEntry` objects.
-  public func collectLogs(from inputs: [any LogInput]) -> AsyncThrowingStream<LogEntry, Error> {
+  public func collectLogs(from inputs: [Input]) -> AsyncThrowingStream<LogEntry, Error> {
     AsyncThrowingStream { continuation in
       // Launch one task per input to stream concurrently
       let tasks = inputs.map { input in
@@ -116,7 +116,7 @@ public struct LogCollector: Sendable {
   ///
   /// - Parameter input: The log input to process.
   /// - Returns: An async throwing stream of `LogEntry` objects.
-  public func streamEntries(from input: any LogInput) -> AsyncThrowingStream<LogEntry, Error> {
+  public func streamEntries(from input: Input) -> AsyncThrowingStream<LogEntry, Error> {
     AsyncThrowingStream { continuation in
       let task = Task.detached(priority: nil) {
         do {
@@ -126,7 +126,7 @@ public struct LogCollector: Sendable {
           var yielded = 0
           let inputName = input.name
 
-          outer: for try await line in input.lines() {
+          outer: for try await line in try await input.lines() {
             let completeObjects = parser.processLine(line)
 
             for jsonString in completeObjects {

@@ -31,7 +31,7 @@ struct IntegrationTests {
       """
 
     let logInput = StringLogInput(json: jsonInput, name: "com.apple.HomeKit")
-    let collector = LogCollector()
+    let collector = LogCollector<StringLogInput>()
 
     var entries: [LogEntry] = []
     for try await entry in collector.streamEntries(from: logInput) {
@@ -67,7 +67,7 @@ struct IntegrationTests {
     let jsonString = String(data: jsonData, encoding: .utf8)!
 
     let logInput = StringLogInput(json: jsonString, name: "com.apple.HomeKit")
-    let collector = LogCollector()
+    let collector = LogCollector<StringLogInput>()
 
     var entries: [LogEntry] = []
     for try await entry in collector.streamEntries(from: logInput) {

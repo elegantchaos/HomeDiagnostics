@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import HomeDiagnosticsCore
+import Subprocess
 
 /// Analyzes logs from the macOS unified logging system.
 ///
@@ -53,14 +54,14 @@ struct AnalyzeCommand: AsyncParsableCommand {
         printErr("==========================================\n")
       }
 
-      let logInputs = makeSystemLogInputs(
+      let logInputs = SystemLogInput.makeSystemLogInputs(
         timeInterval: time.timeInterval,
         includeDebug: collection.detailed,
         debugLogger: { debug($0) },
         captureDirectory: nil
       )
 
-      let collector = LogCollector(
+      let collector = LogCollector<SystemLogInput>(
         entryLimit: collection.entries,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },
@@ -135,7 +136,7 @@ struct AnalyzeCommand: AsyncParsableCommand {
 private func collectRawLogs(timeInterval: String, includeDebug: Bool) async throws -> String {
   var allOutput: [String] = []
 
-  for subsystem in defaultHomeKitSubsystems {
+  for subsystem in SystemLogInput.defaultHomeKitSubsystems {
     do {
       debug("Collecting raw logs for subsystem: \(subsystem)")
       let output = try await collectRawLogsForSubsystem(
@@ -156,7 +157,6 @@ private func collectRawLogs(timeInterval: String, includeDebug: Bool) async thro
   return allOutput.joined(separator: "\n")
 }
 
-import Subprocess
 
 #if canImport(System)
   import System
@@ -171,13 +171,14 @@ private func collectRawLogsForSubsystem(
 ) async throws -> String {
   let levelPredicate = includeDebug ? "--info --debug" : "--info"
 
-  let arguments = [
-    "show",
-    "--style", "syslog",
-    "--last", timeInterval,
-  ] + levelPredicate.components(separatedBy: " ") + [
-    "--predicate", "subsystem == \"\(subsystem)\"",
-  ]
+  let arguments =
+    [
+      "show",
+      "--style", "syslog",
+      "--last", timeInterval,
+    ] + levelPredicate.components(separatedBy: " ") + [
+      "--predicate", "subsystem == \"\(subsystem)\"",
+    ]
 
   let result = try await Subprocess.run(
     .path(FilePath("/usr/bin/log")),

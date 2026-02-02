@@ -15,7 +15,7 @@ struct LogCollectorEntryLimitTests {
       ]
       """
     let logInput = StringLogInput(json: jsonInput, name: "com.apple.HomeKit")
-    let collector = LogCollector(entryLimit: 2)
+    let collector = LogCollector<StringLogInput>(entryLimit: 2)
     var yielded: [LogEntry] = []
     for try await entry in collector.streamEntries(from: logInput) {
       yielded.append(entry)
@@ -34,11 +34,11 @@ struct LogCollectorEntryLimitTests {
           { "timestamp": "2026-01-29 14:30:17.123456+0000", "messageType": "Info", "eventMessage": "C", "subsystem": "com.apple.HomeKit", "processImagePath": "/usr/libexec/homed" }
       ]
       """
-    let logInputs: [any LogInput] = [
+    let logInputs = [
       StringLogInput(json: jsonInput, name: "com.apple.HomeKit"),
       StringLogInput(json: jsonInput, name: "com.apple.Home"),
     ]
-    let collector = LogCollector(entryLimit: 1)
+    let collector = LogCollector<StringLogInput>(entryLimit: 1)
     var yielded: [LogEntry] = []
     for try await entry in collector.collectLogs(from: logInputs) {
       yielded.append(entry)
@@ -57,7 +57,7 @@ struct LogCollectorEntryLimitTests {
       ]
       """
     let logInput = StringLogInput(json: jsonInput, name: "com.apple.HomeKit")
-    let collector = LogCollector(entryLimit: nil)
+    let collector = LogCollector<StringLogInput>(entryLimit: nil)
     var yielded: [LogEntry] = []
     for try await entry in collector.streamEntries(from: logInput) {
       yielded.append(entry)

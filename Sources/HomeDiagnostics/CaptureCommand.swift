@@ -49,14 +49,14 @@ struct CaptureCommand: AsyncParsableCommand {
       printErr("HomeDiagnostics - Capture Mode")
       printErr("==============================\n")
 
-      let logInputs = makeSystemLogInputs(
+      let logInputs = SystemLogInput.makeSystemLogInputs(
         timeInterval: time.timeInterval,
         includeDebug: collection.detailed,
         debugLogger: { debug($0) },
         captureDirectory: outputDirectory
       )
 
-      let collector = LogCollector(
+      let collector = LogCollector<SystemLogInput>(
         entryLimit: collection.entries,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },

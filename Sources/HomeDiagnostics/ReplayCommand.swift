@@ -38,7 +38,7 @@ struct ReplayCommand: AsyncParsableCommand {
       let capturedSession = CapturedSession(directoryPath: directory)
       let logInputs = capturedSession.logInputs()
 
-      let collector = LogCollector(
+      let collector = LogCollector<FileLogInput>(
         entryLimit: collection.entries,
         debugLogger: { debug($0) },
         errorLogger: { printErr($0) },

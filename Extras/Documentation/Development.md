@@ -34,9 +34,17 @@ HomeDiagnostics is built as a Swift command-line tool using a modular package ar
 └──────────────┬──────────────────────┘
                │
                ├─→ HomeDiagnosticsCore Package
-               │   ├─→ LogCollector (data source abstraction)
-               │   │   ├─→ SystemLogDataSource (log show command)
-               │   │   └─→ LogDataSource (protocol)
+               │   ├─→ LogInput (protocol - data sources)
+               │   │   ├─→ SystemLogInput (log show subprocess)
+               │   │   ├─→ FileLogInput (JSON file reading)
+               │   │   └─→ StringLogInput (in-memory, for testing)
+               │   │
+               │   ├─→ LogCollector (orchestrates log collection)
+               │   │   ├─→ collectLogs(from:) (array result)
+               │   │   └─→ streamEntries(from:) (async stream)
+               │   │
+               │   ├─→ CapturedSession (replay captured logs)
+               │   │   └─→ logInputs(for:) → [FileLogInput]
                │   │
                │   ├─→ LogEntry (data model)
                │   │   ├─→ normalizedMessage (pattern-based deduplication)
@@ -72,27 +80,31 @@ HomeDiagnostics is built as a Swift command-line tool using a modular package ar
 ```
 1. User Input
    └─→ ArgumentParser validates flags
-       └─→ HomeDiagnostics.run()
+       └─→ Command.run() (AnalyzeCommand, CaptureCommand, or ReplayCommand)
 
-2. Log Collection
-   └─→ LogCollector.collectLogs()
-       └─→ SystemLogDataSource.fetchLogs()
-           └─→ Subprocess runs `log show --style json`
-               └─→ Parse JSON → [LogEntry]
+2. Log Input Creation
+   └─→ makeSystemLogInputs() creates [SystemLogInput]
+       └─→ Or CapturedSession.logInputs() creates [FileLogInput]
+       └─→ Or StringLogInput for testing
 
-3. Analysis
+3. Log Collection
+   └─→ LogCollector.collectLogs(from: [any LogInput])
+       └─→ Each LogInput.lines() returns AsyncThrowingStream<String, Error>
+           └─→ Parse JSON → [LogEntry]
+
+4. Analysis
    └─→ LogAnalyzer.analyze()
        └─→ Count by level/subsystem
        └─→ Filter problematic entries
        └─→ Return LogAnalysis
 
-4. Formatting
+5. Formatting
    └─→ OutputFormatter.format()
        ├─→ formatSummary() (optional)
        ├─→ formatProblematicEntries() (with deduplication)
        └─→ formatAllEntries() (with deduplication)
 
-5. Output
+6. Output
    └─→ Print to stdout (analysis)
    └─→ Print to stderr (diagnostics if --verbose)
 ```
@@ -217,29 +229,34 @@ swift test --verbose
 ```
 Tests/
 └── HomeDiagnosticsTests/
-    ├── DeduplicationTests.swift      (18 tests - normalization patterns)
-    ├── MessageSimilarityTests.swift  (7 tests - token similarity)
-    ├── LogParsingTests.swift         (parsing logic)
-    ├── FilteringTests.swift          (filter functionality)
-    ├── FormattingTests.swift         (output formatting)
-    ├── AnalysisTests.swift           (statistical analysis)
-    ├── IntegrationTests.swift        (end-to-end tests)
-    └── MockLogDataSource.swift       (test doubles)
+    ├── DeduplicationTests.swift        (18 tests - normalization patterns)
+    ├── MessageSimilarityTests.swift    (7 tests - token similarity)
+    ├── LogParsingTests.swift           (parsing logic)
+    ├── JSONStreamParserTests.swift     (JSON stream parsing)
+    ├── LogCollectorEntryLimitTests.swift (entry limit functionality)
+    ├── FormattingTests.swift           (output formatting)
+    ├── AnalysisTests.swift             (statistical analysis)
+    ├── EntityResolutionTests.swift     (entity extraction)
+    ├── IntegrationTests.swift          (end-to-end tests)
+    └── TestHelpers/
+        └── TestHelpers.swift           (shared test utilities)
 ```
 
 ### Test Coverage
 
-Current coverage: 49 tests across 7 suites
+Current coverage: 70 tests across 9 suites
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
 | DeduplicationTests | 18 | Pattern normalization, real-world cases |
 | MessageSimilarityTests | 7 | Token extraction, similarity, grouping |
+| EntityResolutionTests | 12 | Entity extraction, UUID substitution |
 | LogParsingTests | 6 | JSON parsing, date handling |
-| FilteringTests | 5 | Plain text, regex, errors-only |
+| JSONStreamParserTests | 8 | JSON stream parsing |
+| LogCollectorEntryLimitTests | 4 | Entry limit functionality |
 | FormattingTests | 4 | Color codes, date format, metadata |
-| AnalysisTests | 3 | Counting, grouping, statistics |
-| IntegrationTests | 6 | End-to-end workflows |
+| AnalysisTests | 4 | Counting, grouping, statistics |
+| IntegrationTests | 7 | End-to-end workflows |
 
 ### Writing Tests
 
@@ -261,6 +278,26 @@ struct MyTests {
 }
 ```
 
+**Testing with Log Inputs**:
+
+Use `StringLogInput` to inject test data without touching the system log:
+
+```swift
+@Test("End-to-end test with string log input")
+func endToEndWithStringInput() async throws {
+  let jsonLines = """
+  {"timestamp":"2024-01-29 10:30:15.000000-0800","messageType":"Default","subsystem":"com.apple.Home","eventMessage":"Test message"}
+  """
+  
+  let input = StringLogInput(content: jsonLines, name: "test-input")
+  let collector = LogCollector()
+  let entries = try await collector.collectLogs(from: [input])
+  
+  #expect(entries.count == 1)
+  #expect(entries[0].message == "Test message")
+}
+```
+
 **Guidelines**:
 - Use descriptive test names
 - Document what is being tested in doc comments
@@ -268,6 +305,7 @@ struct MyTests {
 - Use `@testable import` sparingly (prefer public API testing)
 - Add tests for any new functionality
 - Update tests when fixing bugs
+- Use `StringLogInput` for deterministic test data
 
 ## Project Structure
 
@@ -275,22 +313,37 @@ struct MyTests {
 HomeDiagnostics/
 ├── Sources/
 │   ├── HomeDiagnostics/              # Main executable
-│   │   └── main.swift                # CLI entry point
+│   │   ├── HomeDiagnostics.swift     # CLI entry point
+│   │   ├── AnalyzeCommand.swift      # analyze subcommand
+│   │   ├── CaptureCommand.swift      # capture subcommand
+│   │   ├── ReplayCommand.swift       # replay subcommand
+│   │   └── Utils.swift               # CLI utilities
 │   │
 │   └── HomeDiagnosticsCore/          # Core package
+│       ├── LogInput.swift            # LogInput protocol & helpers
+│       ├── SystemLogInput.swift      # System log subprocess
+│       ├── FileLogInput.swift        # File-based input
+│       ├── StringLogInput.swift      # In-memory input (testing)
 │       ├── LogCollector.swift        # Log collection orchestration
+│       ├── CapturedSession.swift     # Replay captured sessions
 │       ├── LogEntry.swift            # Log data model & normalization
 │       ├── LogLevel.swift            # Log severity enum
 │       ├── LogAnalyzer.swift         # Statistical analysis
 │       ├── LogAnalysis.swift         # Analysis result types
 │       ├── OutputFormatter.swift     # Output generation
 │       ├── MessageSimilarity.swift   # Token-based similarity
-│       ├── SystemLogDataSource.swift # System log integration
-│       ├── LogDataSource.swift       # Data source protocol
+│       ├── Entity.swift              # Entity types
+│       ├── EntityCollector.swift     # Entity extraction
+│       ├── EntityResolver.swift      # Entity resolution
+│       ├── EntityAnnotation.swift    # Entity annotation
+│       ├── NameType.swift            # Name type classification
+│       ├── HomeKitAPICollector.swift # HomeKit API integration
 │       └── TerminalColor.swift       # ANSI color codes
 │
 ├── Tests/
 │   └── HomeDiagnosticsTests/         # Test suite
+│       ├── TestHelpers/
+│       │   └── TestHelpers.swift
 │       └── (test files)
 │
 ├── Extras/

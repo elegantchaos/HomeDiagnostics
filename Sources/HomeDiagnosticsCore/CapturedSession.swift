@@ -8,20 +8,20 @@ import Foundation
 public struct CapturedSession: Sendable {
   /// The directory path containing captured JSON files.
   private let directoryPath: String
-  
+
   /// Creates a new captured session.
   ///
   /// - Parameter directoryPath: Path to the directory containing captured JSON files.
   public init(directoryPath: String) {
     self.directoryPath = directoryPath
   }
-  
+
   /// Creates log inputs for all subsystems in the captured session.
   ///
   /// - Parameter subsystems: The subsystem identifiers to create inputs for.
   ///   Defaults to the standard Home/HomeKit subsystems.
   /// - Returns: An array of `FileLogInput` instances for use with `LogCollector`.
-  public func logInputs(for subsystems: [String] = defaultHomeKitSubsystems) -> [any LogInput] {
+  public func logInputs(for subsystems: [String] = SystemLogInput.defaultHomeKitSubsystems) -> [FileLogInput] {
     subsystems.map { subsystem in
       let directoryURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
       let filename = "\(subsystem).json"

@@ -11,7 +11,7 @@ struct LogParsingTests {
   /// Tests parsing valid JSON log output
   @Test("Parse valid JSON log entries")
   func testParseValidJSON() async throws {
-    let collector = LogCollector()
+    let collector = LogCollector<StringLogInput>()
 
     let jsonInput = """
       [
@@ -37,7 +37,7 @@ struct LogParsingTests {
   /// Tests parsing multiple log entries with different types
   @Test("Parse multiple log entries with different message types")
   func testParseMultipleEntries() async throws {
-    let collector = LogCollector()
+    let collector = LogCollector<StringLogInput>()
 
     let jsonInput = """
       [
@@ -76,7 +76,7 @@ struct LogParsingTests {
   /// Tests mapping messageType to LogLevel correctly
   @Test("Map messageType to LogLevel correctly")
   func testMessageTypeMapping() async throws {
-    let collector = LogCollector()
+    let collector = LogCollector<StringLogInput>()
 
     let testCases: [(messageType: String, expectedLevel: LogLevel)] = [
       ("Debug", .debug),

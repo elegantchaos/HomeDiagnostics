@@ -3,8 +3,8 @@ import HomeDiagnosticsCore
 import Testing
 
 /// Helper for easily creating a LogCollector for tests
-func makeTestCollector(entryLimit: Int? = nil) -> LogCollector {
-  LogCollector(entryLimit: entryLimit)
+func makeTestCollector(entryLimit: Int? = nil) -> LogCollector<StringLogInput> {
+  LogCollector<StringLogInput>(entryLimit: entryLimit)
 }
 
 /// Parses a JSON array string into [LogEntry] using StringLogInput
