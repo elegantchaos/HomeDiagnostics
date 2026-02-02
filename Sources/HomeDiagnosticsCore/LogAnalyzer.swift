@@ -12,7 +12,15 @@ public struct LogAnalyzer {
     self.stream = stream
   }
 
-  public func analyzeStream() async throws -> LogAnalysis {
+  /// Analyzes the log entry stream to produce statistical summaries.
+  ///
+  /// Examines log entries to count occurrences by severity level, identify
+  /// problematic entries, group by subsystem, and resolve entity names from
+  /// both pattern scanning and optional additional annotations (e.g., HomeKit API).
+  ///
+  /// - Parameter additionalAnnotations: Optional annotations from external sources (e.g., HomeKit API).
+  /// - Returns: Complete log analysis with statistics and entity resolution.
+  public func analyzeStream(additionalAnnotations: [EntityAnnotation] = []) async throws -> LogAnalysis {
     let batchSize = 500
     var batch: [LogEntry] = []
     var batchTasks: [Task<(EntityCollector, [LogEntry], Int, Int, Int, Int, [String: Int]), Never>] = []
@@ -74,8 +82,8 @@ public struct LogAnalyzer {
       }
     }
 
-    // Merge all annotations from all collectors
-    let allAnnotations = allCollectors.flatMap { $0.annotations }
+    // Merge all annotations from all collectors, prepending additional annotations
+    let allAnnotations = additionalAnnotations + allCollectors.flatMap { $0.annotations }
     let nameResolver = EntityResolver(annotations: allAnnotations)
     let problematicEntries = mergedAllEntries.filter { $0.isProblematic }
     return LogAnalysis(

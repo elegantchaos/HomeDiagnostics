@@ -22,7 +22,7 @@ public enum LogLevel: String, Comparable, Sendable, Codable {
 
   /// Default log level.
   case `default` = "Default"
-  
+
   /// Compares two log levels by severity.
   ///
   /// - Parameters:

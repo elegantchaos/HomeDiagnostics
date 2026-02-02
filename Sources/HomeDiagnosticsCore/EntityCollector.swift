@@ -1,8 +1,8 @@
 import Foundation
 
-/// Normalizes a name for entity association (trims and lowercases).
-private func normalizeName(_ name: String) -> String {
-  name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+/// Trims whitespace from a name while preserving case.
+private func trimName(_ name: String) -> String {
+  name.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 /// Normalizes a UUID for entity association (trims and lowercases).
@@ -68,10 +68,15 @@ public struct EntityCollector: Sendable {
   private mutating func extractPaths(from message: String) {
     let pathPattern = /\[([^\/\]]+)\/([^\/\]]+)\/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\]/
     for match in message.matches(of: pathPattern) {
-      let deviceName = normalizeName(String(match.2))
+      let homeName = trimName(String(match.1))
+      let deviceName = trimName(String(match.2))
       let uuid = normalizeUUID(String(match.3))
       if isValidHumanReadableName(deviceName) {
         annotations.append(EntityAnnotation(kind: .name(uuid: uuid, name: deviceName, type: .device)))
+      }
+      // Create ownership by home name if the home name is valid
+      if isValidHumanReadableName(homeName) {
+        annotations.append(EntityAnnotation(kind: .ownerByName(childUUID: uuid, ownerName: homeName, ownerType: .home)))
       }
     }
   }
@@ -79,7 +84,7 @@ public struct EntityCollector: Sendable {
   private mutating func extractActionSets(from message: String) {
     if message.contains("Add action set finished") {
       let namePattern = /kActionSetName\s*=\s*"([^\"]+)"/
-      let actionSetName = message.firstMatch(of: namePattern).map { normalizeName(String($0.1)) }
+      let actionSetName = message.firstMatch(of: namePattern).map { trimName(String($0.1)) }
       let actionSetUUIDPattern = /kActionSetUUID\s*=\s*"([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})"/
       if let actionSetMatch = message.firstMatch(of: actionSetUUIDPattern) {
         let uuid = normalizeUUID(String(actionSetMatch.1))
@@ -89,6 +94,7 @@ public struct EntityCollector: Sendable {
         let homeUUIDPattern = /kHomeUUID\s*=\s*"([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})"/
         if let homeMatch = message.firstMatch(of: homeUUIDPattern) {
           let homeUUID = normalizeUUID(String(homeMatch.1))
+          annotations.append(EntityAnnotation(kind: .register(uuid: homeUUID, type: .home)))
           annotations.append(EntityAnnotation(kind: .owner(childUUID: uuid, ownerUUID: homeUUID)))
         }
       }
@@ -115,7 +121,7 @@ public struct EntityCollector: Sendable {
     for match in message.matches(of: hmdHomePattern) {
       let internalID = normalizeUUID(String(match.1))
       let spiID = normalizeUUID(String(match.2))
-      let name = normalizeName(String(match.3))
+      let name = trimName(String(match.3))
       if isValidHumanReadableName(name) {
         annotations.append(EntityAnnotation(kind: .name(uuid: internalID, name: name, type: .home)))
         annotations.append(EntityAnnotation(kind: .name(uuid: spiID, name: name, type: .home)))
@@ -128,7 +134,7 @@ public struct EntityCollector: Sendable {
     let matterPattern = /new matter snapshot for '([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})', updateType:home\(([^)]+)\)/
     for match in message.matches(of: matterPattern) {
       let uuid = normalizeUUID(String(match.1))
-      let name = normalizeName(String(match.2))
+      let name = trimName(String(match.2))
       if isValidHumanReadableName(name) {
         annotations.append(EntityAnnotation(kind: .name(uuid: uuid, name: name, type: .home)))
       }

@@ -83,12 +83,8 @@ public struct OutputFormatter {
     }
 
     // Add UUID naming summary at the end (only if substitution is enabled)
-    if substituteNames {
-      // Use the UUIDNameResolver for outputting names
-      // (You will need to update formatUUIDSummary and related helpers to use UUIDResolver)
-      // Example:
-      // let namedEntities = analysis.uuidNameResolver.allEntities
-      // ...
+    if substituteNames && !analysis.uuidNameResolver.namedUUIDs.isEmpty {
+      output += formatUUIDSummary(resolver: analysis.uuidNameResolver)
     }
 
     return output
@@ -392,9 +388,14 @@ private extension OutputFormatter {
   /// Shows all UUIDs that were assigned names during log analysis, organized
   /// by home. For each home, displays the home name followed by devices and
   /// action sets that belong to it. Entities not associated with any home are
+  /// Formats the UUID naming summary section.
+  ///
+  /// Shows all UUIDs that were assigned names during log analysis, organized
+  /// by home. For each home, displays the home name followed by devices and
+  /// action sets that belong to it. Entities not associated with any home are
   /// shown in a separate "Unknown Home" section.
   ///
-  /// - Parameter uuidNamer: The UUID namer with all extracted names and associations.
+  /// - Parameter resolver: The entity resolver with all extracted names and associations.
   /// - Returns: Formatted UUID summary section.
   func formatUUIDSummary(resolver: EntityResolver) -> String {
     var output = "UUID NAMING SUMMARY\n"
@@ -403,7 +404,6 @@ private extension OutputFormatter {
     output += "Discovered \(resolver.namedUUIDs.count) named UUID(s):\n\n"
 
     let (homeToEntities, standaloneHomes, unknownHomeEntities) = resolver.entitiesByHome()
-    let (homeToEntities, standaloneHomes, unknownHomeEntities) = uuidNamer.entitiesByHome()
 
     // Get all home UUIDs (both with and without children)
     let allHomeUUIDs = Set(homeToEntities.keys).union(standaloneHomes).sorted()
@@ -411,17 +411,16 @@ private extension OutputFormatter {
     // Display each home with its entities
     for homeUUID in allHomeUUIDs {
       // Display home
-      let homeEntities = uuidNamer.entities(for: homeUUID)
-      let homeNames = homeEntities.map { $0.name }.sorted()
+      guard let homeEntity = resolver.entity(for: homeUUID) else { continue }
       let homePrefix = String(homeUUID.prefix(8))
 
-      if !homeNames.isEmpty {
+      if !homeEntity.name.isEmpty {
         output +=
-          "\(TerminalColor.bold)\(homeNames.joined(separator: " / "))\(TerminalColor.reset) "
+          "\(TerminalColor.bold)\(homeEntity.name)\(TerminalColor.reset) "
         output += "\(TerminalColor.gray)(ID: \(homePrefix)...)\(TerminalColor.reset)"
 
         // Show Matter ID if available
-        if let matterID = uuidNamer.matterID(for: homeUUID) {
+        if let matterID = resolver.matterID(for: homeUUID) {
           output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
         }
         output += "\n"
@@ -433,18 +432,16 @@ private extension OutputFormatter {
       // Display entities belonging to this home
       if let entityUUIDs = homeToEntities[homeUUID], !entityUUIDs.isEmpty {
         for entityUUID in entityUUIDs {
-          let entities = uuidNamer.entities(for: entityUUID)
-          let names = entities.map { $0.name }.sorted()
-          let types = entities.map { $0.type }
-          let typeLabel = types.contains(NameType.actionSet) ? "Scene" : "Device"
+          guard let entity = resolver.entity(for: entityUUID) else { continue }
+          let typeLabel = entity.type == .actionSet ? "Scene" : "Device"
           let prefix = String(entityUUID.prefix(8))
 
           output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
           output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
-          output += names.joined(separator: " / ")
+          output += entity.name
 
           // Show Matter ID if available
-          if let matterID = uuidNamer.matterID(for: entityUUID) {
+          if let matterID = resolver.matterID(for: entityUUID) {
             output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
           }
           output += "\n"
@@ -459,17 +456,21 @@ private extension OutputFormatter {
       output += "\(TerminalColor.bold)Unknown Home\(TerminalColor.reset)\n"
 
       for entityUUID in unknownHomeEntities {
-        let entities = uuidNamer.entities(for: entityUUID)
-        let names = entities.map { $0.name }.sorted()
-        let types = entities.map { $0.type }
-        let typeLabel =
-          types.contains(NameType.actionSet)
-          ? "Scene" : (types.contains(NameType.device) ? "Device" : "Unknown")
+        guard let entity = resolver.entity(for: entityUUID) else { continue }
+        let typeLabel: String
+        switch entity.type {
+          case .actionSet:
+            typeLabel = "Scene"
+          case .device:
+            typeLabel = "Device"
+          default:
+            typeLabel = "Unknown"
+        }
         let prefix = String(entityUUID.prefix(8))
 
         output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
         output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
-        output += names.joined(separator: " / ")
+        output += entity.name
         output += "\n"
       }
     }

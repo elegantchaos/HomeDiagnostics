@@ -11,7 +11,7 @@ import Foundation
 struct StandardError: TextOutputStream, Sendable {
   /// The file handle for standard error output.
   private static let handle = FileHandle.standardError
-  
+
   /// Writes a string to standard error.
   ///
   /// - Parameter string: The string to write.

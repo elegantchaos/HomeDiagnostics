@@ -7,6 +7,7 @@ public struct EntityAnnotation: Sendable, Hashable {
     case uuid(name: String, uuid: String, type: NameType)
     case matterID(uuid: String, matterID: String)
     case owner(childUUID: String, ownerUUID: String)
+    case ownerByName(childUUID: String, ownerName: String, ownerType: NameType)
     case register(uuid: String, type: NameType)
     case spiID(uuid: String, spiID: String)
   }

@@ -1,6 +1,24 @@
 import ArgumentParser
 import Foundation
 import HomeDiagnosticsCore
+import OSLog
+
+/// Logger for CLI operations.
+let cliLogger = Logger(subsystem: "com.elegantchaos.HomeDiagnostics", category: "CLI")
+
+/// Entity discovery method selection.
+///
+/// Controls which approach(es) are used to discover HomeKit entities.
+enum EntitySource: String, ExpressibleByArgument {
+  /// Use pattern scanning of log messages (default, no permissions required).
+  case patterns
+
+  /// Use HomeKit API queries (requires HomeKit entitlements and authorization).
+  case api
+
+  /// Use both pattern scanning and HomeKit API (maximum coverage).
+  case both
+}
 
 /// Command-line tool for diagnosing Apple Home and HomeKit issues.
 ///
@@ -64,6 +82,12 @@ struct HomeDiagnostics: AsyncParsableCommand {
   /// Whether to disable UUID name substitution.
   @Flag(name: .long, help: "Disable UUID name substitution (show raw UUIDs)")
   var noNames: Bool = false
+
+  /// Entity discovery method (patterns, api, or both).
+  @Option(
+    name: .long,
+    help: "Entity discovery method: patterns, api, or both (default)")
+  var entitySource: EntitySource = .both
 
   /// Main entry point for the command execution.
   ///
@@ -156,9 +180,32 @@ struct HomeDiagnostics: AsyncParsableCommand {
       // Normal mode: parse and analyze logs
       let logStream = collector.collectLogs()
 
+      // Collect entity annotations from HomeKit API if requested
+      var additionalAnnotations: [EntityAnnotation] = []
+      #if canImport(HomeKit)
+        if entitySource == .api || entitySource == .both {
+          do {
+            debug("Collecting entities from HomeKit API")
+            let homekitCollector = HomeKitAPICollector()
+            additionalAnnotations = try await homekitCollector.collect()
+            debug("HomeKit API returned \\(additionalAnnotations.count) annotations")
+          } catch {
+            cliLogger.error("HomeKit collection failed: \\(error.localizedDescription)")
+            printErr("[WARNING] HomeKit API collection failed: \\(error.localizedDescription)")
+            printErr("Continuing with pattern scanning only...")
+          }
+        }
+      #else
+        if entitySource == .api || entitySource == .both {
+          printErr("[WARNING] HomeKit framework not available on this platform")
+          printErr("Continuing with pattern scanning only...")
+        }
+      #endif
+
       debug("Analyzing logs")
       let analyzer = LogAnalyzer(stream: logStream)
-      let analysis = try await analyzer.analyzeStream()
+      let analysis = try await analyzer.analyzeStream(
+        additionalAnnotations: additionalAnnotations)
 
       debug("Formatting output")
       let formatter = OutputFormatter(

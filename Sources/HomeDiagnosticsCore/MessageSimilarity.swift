@@ -44,7 +44,8 @@ public struct MessageSimilarity: Sendable {
     let words = message.components(separatedBy: CharacterSet.alphanumerics.inverted)
 
     // Filter and normalize
-    let tokens = words
+    let tokens =
+      words
       .map { $0.lowercased() }
       .filter { word in
         // Must be at least 2 characters
@@ -59,8 +60,10 @@ public struct MessageSimilarity: Sendable {
         guard !stopWords.contains(word) else { return false }
 
         // Skip pure placeholder tokens (like "n", "id", "mac", etc.)
-        guard !["n", "id", "mac", "addr", "obj", "bool", "domain", "prefix", "private"].contains(
-          word) else { return false }
+        guard
+          !["n", "id", "mac", "addr", "obj", "bool", "domain", "prefix", "private"].contains(
+            word)
+        else { return false }
 
         return true
       }
