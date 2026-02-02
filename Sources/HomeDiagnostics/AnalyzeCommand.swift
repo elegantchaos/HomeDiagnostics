@@ -54,7 +54,7 @@ struct AnalyzeCommand: AsyncParsableCommand {
         printErr("==========================================\n")
       }
 
-      let logInputs = SystemLogInput.makeSystemLogInputs(
+      let logInputs = LogCollector<SystemLogInput>.makeSystemLogInputs(
         timeInterval: time.timeInterval,
         includeDebug: collection.detailed,
         debugLogger: { debug($0) }
@@ -135,7 +135,7 @@ struct AnalyzeCommand: AsyncParsableCommand {
 private func collectRawLogs(timeInterval: String, includeDebug: Bool) async throws -> String {
   var allOutput: [String] = []
 
-  for subsystem in SystemLogInput.defaultHomeKitSubsystems {
+  for subsystem in LogCollector<SystemLogInput>.defaultHomeKitSubsystems {
     do {
       debug("Collecting raw logs for subsystem: \(subsystem)")
       let output = try await collectRawLogsForSubsystem(

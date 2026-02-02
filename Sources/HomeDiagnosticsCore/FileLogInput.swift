@@ -24,10 +24,10 @@ public struct FileLogInput: LogInput {
     self.name = name ?? filePath
   }
 
-  /// Returns an async sequence of text lines from this input.
-  public func lines() async throws -> AsyncLineSequence<URLSession.AsyncBytes> {
+  /// Returns an async byte stream from this input.
+  public func bytes() async throws -> URLSession.AsyncBytes {
     let fileURL = URL(fileURLWithPath: filePath)
     let (stream, _) = try await URLSession.shared.bytes(from: fileURL)
-    return stream.lines
+    return stream
   }
 }

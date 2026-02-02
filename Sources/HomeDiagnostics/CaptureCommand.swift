@@ -49,7 +49,7 @@ struct CaptureCommand: AsyncParsableCommand {
       printErr("HomeDiagnostics - Capture Mode")
       printErr("==============================\n")
 
-      let logInputs = SystemLogInput.makeSystemLogInputs(
+      let logInputs = LogCollector<SystemLogInput>.makeSystemLogInputs(
         timeInterval: time.timeInterval,
         includeDebug: collection.detailed,
         debugLogger: { debug($0) }
@@ -74,11 +74,11 @@ struct CaptureCommand: AsyncParsableCommand {
 
       debug("Beginning log capture")
 
-      let entryCount = try await collector.captureLogs(from: logInputs, to: outputDirectory)
+      try await collector.captureLogs(from: logInputs, to: outputDirectory)
 
       printErr("")
       printErr("Capture complete!")
-      printErr("Total entries captured: \(entryCount)")
+      printErr("Capture completed successfully")
       printErr("Files written to: \(outputDirectory)")
 
       info("HomeDiagnostics capture completed successfully")

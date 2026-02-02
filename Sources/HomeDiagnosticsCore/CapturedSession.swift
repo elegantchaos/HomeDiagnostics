@@ -21,7 +21,7 @@ public struct CapturedSession: Sendable {
   /// - Parameter subsystems: The subsystem identifiers to create inputs for.
   ///   Defaults to the standard Home/HomeKit subsystems.
   /// - Returns: An array of `FileLogInput` instances for use with `LogCollector`.
-  public func logInputs(for subsystems: [String] = SystemLogInput.defaultHomeKitSubsystems) -> [FileLogInput] {
+  public func logInputs(for subsystems: [String] = LogCollector<SystemLogInput>.defaultHomeKitSubsystems) -> [FileLogInput] {
     subsystems.map { subsystem in
       let directoryURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
       let filename = "\(subsystem).json"

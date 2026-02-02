@@ -24,14 +24,13 @@ public struct StringLogInput: LogInput {
     self.name = name
   }
 
-  /// Returns an async sequence of text lines from this input.
-  public func lines() async throws -> AsyncLineSequence<AsyncStream<UInt8>> {
-    let byteStream = AsyncStream<UInt8> { continuation in
+  /// Returns an async byte stream from this input.
+  public func bytes() async throws -> AsyncStream<UInt8> {
+    AsyncStream { continuation in
       for byte in json.utf8 {
         continuation.yield(byte)
       }
       continuation.finish()
     }
-    return byteStream.lines
   }
 }

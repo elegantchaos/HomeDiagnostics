@@ -35,7 +35,7 @@ HomeDiagnostics is built as a Swift command-line tool using a modular package ar
                │
                ├─→ HomeDiagnosticsCore Package
                │   ├─→ LogInput (protocol - data sources)
-               │   │   ├─→ SystemLogInput (log show subprocess)
+               │   │   ├─→ SystemLogInput (log show runner)
                │   │   ├─→ FileLogInput (JSON file reading)
                │   │   └─→ StringLogInput (in-memory, for testing)
                │   │
@@ -83,14 +83,15 @@ HomeDiagnostics is built as a Swift command-line tool using a modular package ar
        └─→ Command.run() (AnalyzeCommand, CaptureCommand, or ReplayCommand)
 
 2. Log Input Creation
-   └─→ makeSystemLogInputs() creates [SystemLogInput]
+   └─→ LogCollector.makeSystemLogInputs() creates [SystemLogInput]
        └─→ Or CapturedSession.logInputs() creates [FileLogInput]
        └─→ Or StringLogInput for testing
 
 3. Log Collection
    └─→ LogCollector.collectLogs(from: [any LogInput])
-       └─→ Each LogInput.lines() returns AsyncThrowingStream<String, Error>
-           └─→ Parse JSON → [LogEntry]
+       └─→ Each LogInput.bytes() returns an async byte stream
+           └─→ LogInput.lines() (extension) decodes into lines
+               └─→ Parse JSON → [LogEntry]
 
 4. Analysis
    └─→ LogAnalyzer.analyze()
@@ -289,9 +290,12 @@ func endToEndWithStringInput() async throws {
   {"timestamp":"2024-01-29 10:30:15.000000-0800","messageType":"Default","subsystem":"com.apple.Home","eventMessage":"Test message"}
   """
   
-  let input = StringLogInput(content: jsonLines, name: "test-input")
-  let collector = LogCollector()
-  let entries = try await collector.collectLogs(from: [input])
+  let input = StringLogInput(json: jsonLines, name: "test-input")
+  let collector = LogCollector<StringLogInput>()
+  var entries: [LogEntry] = []
+  for try await entry in collector.collectLogs(from: [input]) {
+    entries.append(entry)
+  }
   
   #expect(entries.count == 1)
   #expect(entries[0].message == "Test message")
@@ -321,7 +325,8 @@ HomeDiagnostics/
 │   │
 │   └── HomeDiagnosticsCore/          # Core package
 │       ├── LogInput.swift            # LogInput protocol & helpers
-│       ├── SystemLogInput.swift      # System log subprocess
+│       ├── SystemLogInput.swift      # System log input adapter
+│       ├── SystemLogRunner.swift     # System log subprocess
 │       ├── FileLogInput.swift        # File-based input
 │       ├── StringLogInput.swift      # In-memory input (testing)
 │       ├── LogCollector.swift        # Log collection orchestration
