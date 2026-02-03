@@ -114,7 +114,9 @@ struct AnalyzeCommand: AsyncParsableCommand {
         deduplicate: output.dedupe,
         errorsOnly: output.errorsOnly,
         filter: output.filter,
-        substituteNames: !output.noNames
+        substituteNames: !output.noNames,
+        minimumOccurrence: output.minimum,
+        useColors: !output.plain
       )
 
       let outputText = formatter.format()

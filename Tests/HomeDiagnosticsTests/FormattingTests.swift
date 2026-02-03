@@ -51,7 +51,8 @@ struct FormattingTests {
       analysis: analysis,
       showSummary: false,
       deduplicate: false,
-      errorsOnly: false
+      errorsOnly: false,
+      useColors: false
     )
     let output = formatter.format()
     // Assert that the summary is present and contains friendly home/device names
@@ -113,7 +114,8 @@ struct FormattingTests {
       showSummary: false,
       deduplicate: false,
       errorsOnly: true,
-      filter: "hue"
+      filter: "hue",
+      useColors: false
     )
 
     let output = formatter.format()
@@ -171,11 +173,171 @@ struct FormattingTests {
       analysis: analysis,
       showSummary: false,
       deduplicate: true,
-      errorsOnly: false
+      errorsOnly: false,
+      useColors: false
     )
 
     let output = formatter.format()
     #expect(output.localizedStandardContains("Format-string dedupe:"))
     #expect(output.localizedStandardContains("normalized dedupe:"))
+  }
+
+  /// Tests minimum occurrence filtering in deduplicated output
+  @Test("Minimum occurrence filter hides low-frequency entries")
+  func testMinimumOccurrenceFiltering() async throws {
+    let entries = [
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .info,
+        message: "Timeout after 5 seconds"
+      ),
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .info,
+        message: "Timeout after 10 seconds"
+      ),
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .error,
+        message: "Single failure"
+      ),
+    ]
+
+    let analysis = LogAnalysis(
+      totalEntries: entries.count,
+      errorCount: 1,
+      faultCount: 0,
+      warningCount: 0,
+      problematicCount: 1,
+      subsystemCounts: ["com.apple.HomeKit": entries.count],
+      problematicEntries: entries.filter { $0.isProblematic },
+      allEntries: entries,
+      uuidNameResolver: EntityResolver(annotations: [])
+    )
+
+    let formatter = OutputFormatter(
+      analysis: analysis,
+      showSummary: false,
+      deduplicate: true,
+      errorsOnly: false,
+      minimumOccurrence: 2,
+      useColors: false
+    )
+
+    let output = formatter.format()
+    #expect(output.localizedStandardContains("Timeout after 5 seconds"))
+    #expect(!output.localizedStandardContains("Single failure"))
+  }
+
+  /// Tests that plain output does not include ANSI escape codes
+  @Test("Plain output omits ANSI codes")
+  func testPlainOutputOmitsAnsiCodes() async throws {
+    let entries = [
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .error,
+        message: "Hue bridge error occurred!"
+      )
+    ]
+    let analysis = LogAnalysis(
+      totalEntries: entries.count,
+      errorCount: 1,
+      faultCount: 0,
+      warningCount: 0,
+      problematicCount: 1,
+      subsystemCounts: ["com.apple.HomeKit": entries.count],
+      problematicEntries: entries,
+      allEntries: entries,
+      uuidNameResolver: EntityResolver(annotations: [])
+    )
+    let formatter = OutputFormatter(
+      analysis: analysis,
+      showSummary: false,
+      deduplicate: true,
+      errorsOnly: false,
+      useColors: false
+    )
+
+    let output = formatter.format()
+    #expect(!output.contains("\u{001B}["))
+  }
+
+  /// Tests that category appears in metadata
+  @Test("Output includes category in metadata")
+  func testCategoryInMetadata() async throws {
+    let entries = [
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        category: "HMHomeManager",
+        level: .info,
+        message: "Starting home manager"
+      )
+    ]
+    let analysis = LogAnalysis(
+      totalEntries: entries.count,
+      errorCount: 0,
+      faultCount: 0,
+      warningCount: 0,
+      problematicCount: 0,
+      subsystemCounts: ["com.apple.HomeKit": entries.count],
+      problematicEntries: [],
+      allEntries: entries,
+      uuidNameResolver: EntityResolver(annotations: [])
+    )
+    let formatter = OutputFormatter(
+      analysis: analysis,
+      showSummary: false,
+      deduplicate: false,
+      errorsOnly: false,
+      useColors: false
+    )
+
+    let output = formatter.format()
+    #expect(output.localizedStandardContains("[HMHomeManager]"))
+  }
+
+  /// Tests that default-level entries omit the level tag
+  @Test("Default level omits tag")
+  func testDefaultLevelOmitsTag() async throws {
+    let entries = [
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .default,
+        message: "Default level message"
+      )
+    ]
+    let analysis = LogAnalysis(
+      totalEntries: entries.count,
+      errorCount: 0,
+      faultCount: 0,
+      warningCount: 0,
+      problematicCount: 0,
+      subsystemCounts: ["com.apple.HomeKit": entries.count],
+      problematicEntries: [],
+      allEntries: entries,
+      uuidNameResolver: EntityResolver(annotations: [])
+    )
+    let formatter = OutputFormatter(
+      analysis: analysis,
+      showSummary: false,
+      deduplicate: false,
+      errorsOnly: false,
+      useColors: false
+    )
+
+    let output = formatter.format()
+    #expect(!output.localizedStandardContains("[Default]"))
   }
 }

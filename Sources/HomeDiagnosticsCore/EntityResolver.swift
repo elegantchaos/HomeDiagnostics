@@ -236,19 +236,15 @@ public struct EntityResolver: Sendable {
 
   /// Returns the display name for a UUID.
   ///
-  /// Generates a display name by combining the entity name with the
-  /// first 8 characters of the UUID for unambiguous identification.
-  ///
-  /// Example: "Garage Camera-9FEA624C"
+  /// Uses the resolved entity name as-is when available.
   ///
   /// - Parameter uuid: The UUID to look up (case-insensitive).
-  /// - Returns: Display name with UUID prefix, or nil if no name found.
+  /// - Returns: Display name, or nil if no name found.
   public func displayName(for uuid: String) -> String? {
     guard let entity = uuidToEntity[uuid.lowercased()], !entity.name.isEmpty else {
       return nil
     }
-    let prefix = String(uuid.prefix(8))
-    return "\(entity.name)-\(prefix)"
+    return entity.name
   }
 
   /// Substitutes UUIDs in a message with human-readable display names.

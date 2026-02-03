@@ -31,6 +31,12 @@ public struct OutputFormatter {
   /// summary section is omitted.
   public let substituteNames: Bool
 
+  /// Minimum occurrences required for displaying an entry.
+  public let minimumOccurrence: Int
+
+  /// Whether to emit ANSI colors and styling.
+  public let useColors: Bool
+
   /// Creates a new output formatter with specified options.
   ///
   /// - Parameters:
@@ -39,13 +45,17 @@ public struct OutputFormatter {
   ///   - deduplicate: Whether to group duplicate entries.
   ///   - errorsOnly: Whether errors-only mode is active.
   ///   - substituteNames: Whether to substitute UUIDs with names (default: true).
+  ///   - minimumOccurrence: Minimum occurrences required for display (default: 1).
+  ///   - useColors: Whether to emit ANSI colors (default: true).
   public init(
     analysis: LogAnalysis,
     showSummary: Bool,
     deduplicate: Bool,
     errorsOnly: Bool,
     filter: String? = nil,
-    substituteNames: Bool = true
+    substituteNames: Bool = true,
+    minimumOccurrence: Int? = nil,
+    useColors: Bool = true
   ) {
     self.analysis = analysis
     self.showSummary = showSummary
@@ -53,6 +63,8 @@ public struct OutputFormatter {
     self.errorsOnly = errorsOnly
     self.filter = filter
     self.substituteNames = substituteNames
+    self.minimumOccurrence = max(minimumOccurrence ?? 1, 1)
+    self.useColors = useColors
   }
 
   /// Generates formatted output from the analysis results.
@@ -87,7 +99,10 @@ public struct OutputFormatter {
       output += formatUUIDSummary(resolver: analysis.uuidNameResolver)
     }
 
-    return output
+    if useColors {
+      return output
+    }
+    return stripANSI(from: output)
   }
 }
 
@@ -113,29 +128,36 @@ private extension OutputFormatter {
   ///
   /// - Returns: Formatted summary section.
   func formatSummary() -> String {
+    let filteredProblematic = analysis.problematicEntries.filter { entry in
+      let passesError = !errorsOnly || entry.isProblematic
+      let passesFilter = filter == nil || matchesFilter(entry.message, pattern: filter!)
+      return passesError && passesFilter
+    }
+    let filteredProblematicByMinimum = applyMinimumOccurrence(to: filteredProblematic)
+
     // Apply filtering for display summaries as well
     let filteredEntries = analysis.allEntries.filter { entry in
       let passesError = !errorsOnly || entry.isProblematic
       let passesFilter = filter == nil || matchesFilter(entry.message, pattern: filter!)
       return passesError && passesFilter
     }
-    let filteredProblematic = filteredEntries.filter { $0.isProblematic }
+    let filteredEntriesByMinimum = applyMinimumOccurrence(to: filteredEntries)
 
     var summary = "SUMMARY\n"
     summary += "=======\n\n"
-    summary += "Total log entries: \(filteredEntries.count)\n"
-    summary += "Errors: \(filteredEntries.filter { $0.level == .error }.count)\n"
-    summary += "Faults: \(filteredEntries.filter { $0.level == .fault }.count)\n"
-    summary += "Warnings: \(filteredEntries.filter { $0.level == .warning }.count)\n"
-    summary += "Potentially problematic: \(filteredProblematic.count)\n"
+    summary += "Total log entries: \(filteredEntriesByMinimum.count)\n"
+    summary += "Errors: \(filteredEntriesByMinimum.filter { $0.level == .error }.count)\n"
+    summary += "Faults: \(filteredEntriesByMinimum.filter { $0.level == .fault }.count)\n"
+    summary += "Warnings: \(filteredEntriesByMinimum.filter { $0.level == .warning }.count)\n"
+    summary += "Potentially problematic: \(filteredProblematicByMinimum.count)\n"
 
     if deduplicate {
-      let uniqueCount = groupEntries(filteredEntries).count
+      let uniqueCount = groupEntries(filteredEntriesByMinimum).count
       summary += "Unique entry types: \(uniqueCount)\n"
     }
 
     summary += "\nEntries by subsystem:\n"
-    let subsystemCounts = Dictionary(grouping: filteredEntries, by: { $0.subsystem }).mapValues { $0.count }
+    let subsystemCounts = Dictionary(grouping: filteredEntriesByMinimum, by: { $0.subsystem }).mapValues { $0.count }
     for (subsystem, count) in subsystemCounts.sorted(by: { $0.value > $1.value }) {
       summary += "  \(subsystem): \(count)\n"
     }
@@ -147,7 +169,7 @@ private extension OutputFormatter {
   ///
   /// Uses a first-pass format-string key when available, then refines grouping
   /// using normalized messages. Creates `GroupedLogEntry` instances containing
-  /// occurrence counts and time ranges. Groups are sorted by occurrence count (descending).
+  /// occurrence counts and time ranges. Groups are sorted by occurrence count (ascending).
   ///
   /// Note: Phase 2 (token-based similarity) is available but not enabled here due to
   /// performance considerations with large datasets. Phase 1 normalization (pattern replacement
@@ -173,7 +195,15 @@ private extension OutputFormatter {
       }
     }
 
-    return groups.sorted { $0.count > $1.count }
+    return groups.sorted { lhs, rhs in
+      if lhs.count != rhs.count {
+        return lhs.count < rhs.count
+      }
+      if lhs.firstSeen != rhs.firstSeen {
+        return lhs.firstSeen < rhs.firstSeen
+      }
+      return lhs.example.message < rhs.example.message
+    }
   }
 
   /// Formats a date as a compact timestamp string.
@@ -197,6 +227,9 @@ private extension OutputFormatter {
   /// - Parameter level: The log severity level.
   /// - Returns: ANSI color escape sequence, or empty string for info/debug.
   func colorForLevel(_ level: LogLevel) -> String {
+    if !useColors {
+      return ""
+    }
     switch level {
       case .error, .fault:
         return TerminalColor.red
@@ -229,20 +262,26 @@ private extension OutputFormatter {
   /// - Parameter group: The grouped log entry.
   /// - Returns: Formatted metadata line with ANSI color codes.
   func formatMetadataLineGrouped(_ group: GroupedLogEntry) -> String {
-    var line = "\(TerminalColor.gray)[\(group.count)x] "
+    let metadataPrefix = useColors ? TerminalColor.gray : ""
+    let metadataReset = useColors ? TerminalColor.reset : ""
+    var line = "\(metadataPrefix)[\(group.count)x] "
     line += "[\(formatCompactDate(group.firstSeen))"
     if group.count > 1 {
       line += " - \(formatCompactDate(group.lastSeen))"
     }
     line += "]"
 
-    // Only show level if not Info
-    if group.example.level != .info {
+    // Only show level if not Info or Default
+    if group.example.level != .info && group.example.level != .default {
       line += " [\(group.example.level.rawValue)]"
     }
 
+    if let category = group.example.category, !category.isEmpty {
+      line += " [\(category)]"
+    }
+
     line += " [\(formatSubsystem(group.example.subsystem))]"
-    line += "\(TerminalColor.reset)"
+    line += metadataReset
     return line
   }
 
@@ -254,15 +293,21 @@ private extension OutputFormatter {
   /// - Parameter entry: The log entry.
   /// - Returns: Formatted metadata line with ANSI color codes.
   func formatMetadataLineEntry(_ entry: LogEntry) -> String {
-    var line = "\(TerminalColor.gray)[\(formatCompactDate(entry.timestamp))]"
+    let metadataPrefix = useColors ? TerminalColor.gray : ""
+    let metadataReset = useColors ? TerminalColor.reset : ""
+    var line = "\(metadataPrefix)[\(formatCompactDate(entry.timestamp))]"
 
-    // Only show level if not Info
-    if entry.level != .info {
+    // Only show level if not Info or Default
+    if entry.level != .info && entry.level != .default {
       line += " [\(entry.level.rawValue)]"
     }
 
+    if let category = entry.category, !category.isEmpty {
+      line += " [\(category)]"
+    }
+
     line += " [\(formatSubsystem(entry.subsystem))]"
-    line += "\(TerminalColor.reset)"
+    line += metadataReset
     return line
   }
 
@@ -282,12 +327,13 @@ private extension OutputFormatter {
     let filteredProblematic = analysis.problematicEntries.filter { entry in
       filter == nil || matchesFilter(entry.message, pattern: filter!)
     }
+    let filteredProblematicByMinimum = applyMinimumOccurrence(to: filteredProblematic)
 
     if deduplicate {
-      let grouped = groupEntries(filteredProblematic)
+      let grouped = groupEntries(filteredProblematicByMinimum)
       output +=
-        "Showing \(grouped.count) unique problematic entry types (out of \(filteredProblematic.count) total)\n"
-      output += formatDeduplicationSummary(for: filteredProblematic)
+        "Showing \(grouped.count) unique problematic entry types (out of \(filteredProblematicByMinimum.count) total)\n"
+      output += formatDeduplicationSummary(for: filteredProblematicByMinimum)
       output += "\n"
 
       for group in grouped {
@@ -302,10 +348,14 @@ private extension OutputFormatter {
           substituteNames
           ? analysis.uuidNameResolver.substitute(in: group.example.message)
           : group.example.message
-        output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
+        if useColors {
+          output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
+        } else {
+          output += "\(message)\n\n"
+        }
       }
     } else {
-      for entry in analysis.problematicEntries {
+      for entry in filteredProblematicByMinimum {
         let color = colorForLevel(entry.level)
 
         // Metadata line
@@ -317,7 +367,11 @@ private extension OutputFormatter {
           substituteNames
           ? analysis.uuidNameResolver.substitute(in: entry.message)
           : entry.message
-        output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
+        if useColors {
+          output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
+        } else {
+          output += "\(message)\n\n"
+        }
       }
     }
 
@@ -342,12 +396,13 @@ private extension OutputFormatter {
       let passesFilter = filter == nil || matchesFilter(entry.message, pattern: filter!)
       return passesError && passesFilter
     }
+    let filteredEntriesByMinimum = applyMinimumOccurrence(to: filteredEntries)
 
     if deduplicate {
-      let grouped = groupEntries(filteredEntries)
+      let grouped = groupEntries(filteredEntriesByMinimum)
       output +=
-        "Showing \(grouped.count) unique entry types (out of \(filteredEntries.count) total)\n"
-      output += formatDeduplicationSummary(for: filteredEntries)
+        "Showing \(grouped.count) unique entry types (out of \(filteredEntriesByMinimum.count) total)\n"
+      output += formatDeduplicationSummary(for: filteredEntriesByMinimum)
       output += "\n"
 
       for group in grouped {
@@ -362,15 +417,14 @@ private extension OutputFormatter {
           substituteNames
           ? analysis.uuidNameResolver.substitute(in: group.example.message)
           : group.example.message
-        if !color.isEmpty {
-          output +=
-            "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
+        if useColors && !color.isEmpty {
+          output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
         } else {
           output += "\(message)\n\n"
         }
       }
     } else {
-      for entry in filteredEntries {
+      for entry in filteredEntriesByMinimum {
         let color = colorForLevel(entry.level)
 
         // Metadata line
@@ -382,7 +436,7 @@ private extension OutputFormatter {
           substituteNames
           ? analysis.uuidNameResolver.substitute(in: entry.message)
           : entry.message
-        if !color.isEmpty {
+        if useColors && !color.isEmpty {
           output += "\(color)\(TerminalColor.bold)\(message)\(TerminalColor.reset)\n\n"
         } else {
           output += "\(message)\n\n"
@@ -408,6 +462,9 @@ private extension OutputFormatter {
   /// - Parameter resolver: The entity resolver with all extracted names and associations.
   /// - Returns: Formatted UUID summary section.
   func formatUUIDSummary(resolver: EntityResolver) -> String {
+    let bold = useColors ? TerminalColor.bold : ""
+    let gray = useColors ? TerminalColor.gray : ""
+    let reset = useColors ? TerminalColor.reset : ""
     var output = "UUID NAMING SUMMARY\n"
     output += "===================\n\n"
     output += "Discovered \(resolver.allEntities.count) entities.\n"
@@ -434,18 +491,18 @@ private extension OutputFormatter {
       let aliasPrefixes = homeUUIDs.dropFirst().map { String($0.prefix(8)) }
 
       if !homeEntity.name.isEmpty {
-        output += "\(TerminalColor.bold)\(homeEntity.name)\(TerminalColor.reset) "
-        output += "\(TerminalColor.gray)(ID: \(homePrefix)...)\(TerminalColor.reset)"
+        output += "\(bold)\(homeEntity.name)\(reset) "
+        output += "\(gray)(ID: \(homePrefix)...)\(reset)"
         if !aliasPrefixes.isEmpty {
-          output += " \(TerminalColor.gray)[Aliases: \(aliasPrefixes.joined(separator: ", "))]\(TerminalColor.reset)"
+          output += " \(gray)[Aliases: \(aliasPrefixes.joined(separator: ", "))]\(reset)"
         }
         if let matterID = resolver.matterID(for: primaryUUID) {
-          output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
+          output += " \(gray)[Matter: \(matterID)]\(reset)"
         }
         output += "\n"
       } else {
-        output += "\(TerminalColor.bold)Home\(TerminalColor.reset) "
-        output += "\(TerminalColor.gray)(ID: \(homePrefix)...)\(TerminalColor.reset)\n"
+        output += "\(bold)Home\(reset) "
+        output += "\(gray)(ID: \(homePrefix)...)\(reset)\n"
       }
 
       var entityUUIDs: Set<String> = []
@@ -461,12 +518,12 @@ private extension OutputFormatter {
           let typeLabel = entity.type == .actionSet ? "Scene" : "Device"
           let prefix = String(entityUUID.prefix(8))
 
-          output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
-          output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
+          output += "  \(gray)[\(typeLabel)]\(reset) "
+          output += "\(gray)\(prefix)...\(reset) → "
           output += entity.name
 
           if let matterID = resolver.matterID(for: entityUUID) {
-            output += " \(TerminalColor.gray)[Matter: \(matterID)]\(TerminalColor.reset)"
+            output += " \(gray)[Matter: \(matterID)]\(reset)"
           }
           output += "\n"
         }
@@ -477,7 +534,7 @@ private extension OutputFormatter {
 
     // Display entities with unknown homes
     if !unknownHomeEntities.isEmpty {
-      output += "\(TerminalColor.bold)Unknown Home\(TerminalColor.reset)\n"
+      output += "\(bold)Unknown Home\(reset)\n"
 
       for entityUUID in unknownHomeEntities {
         guard let entity = resolver.entity(for: entityUUID) else { continue }
@@ -492,8 +549,8 @@ private extension OutputFormatter {
         }
         let prefix = String(entityUUID.prefix(8))
 
-        output += "  \(TerminalColor.gray)[\(typeLabel)]\(TerminalColor.reset) "
-        output += "\(TerminalColor.gray)\(prefix)...\(TerminalColor.reset) → "
+        output += "  \(gray)[\(typeLabel)]\(reset) "
+        output += "\(gray)\(prefix)...\(reset) → "
         output += entity.name
         output += "\n"
       }
@@ -513,6 +570,31 @@ private extension OutputFormatter {
   func formatDeduplicationSummary(for entries: [LogEntry]) -> String {
     let summary = DeduplicationSummary(entries: entries)
     return "Format-string dedupe: \(summary.formatStringDeduped) collapsed, normalized dedupe: \(summary.normalizedDeduped) collapsed\n"
+  }
+
+  /// Applies the minimum occurrence filter to entries.
+  ///
+  /// - Parameter entries: The entries to filter.
+  /// - Returns: Entries that occur at least the minimum threshold.
+  func applyMinimumOccurrence(to entries: [LogEntry]) -> [LogEntry] {
+    guard minimumOccurrence > 1 else {
+      return entries
+    }
+    let summary = DeduplicationSummary(entries: entries)
+    let allowedKeys = Set(
+      summary.formatStringGroups.values.flatMap { $0 }
+        .filter { $0.count >= minimumOccurrence }
+        .compactMap { $0.first?.deduplicationKey }
+    )
+    return entries.filter { allowedKeys.contains($0.deduplicationKey) }
+  }
+
+  /// Strips ANSI escape sequences from text.
+  ///
+  /// - Parameter text: The text to sanitize.
+  /// - Returns: The text without escape sequences.
+  func stripANSI(from text: String) -> String {
+    text.replacing(/\u{001B}\[[0-9;]*m/, with: "")
   }
 }
 

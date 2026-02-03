@@ -100,6 +100,10 @@ struct OutputOptions: ParsableArguments {
   @Flag(name: .long, help: "De-duplicate log entries and show one example of each unique type")
   var dedupe: Bool = false
 
+  /// Minimum occurrence count for displaying a message.
+  @Option(name: .long, help: "Only show messages that occur at least this many times")
+  var minimum: Int?
+
   /// Whether to show only errors, faults, and warnings.
   @Flag(name: .long, help: "Show only errors, faults, and warnings (filter out info/debug)")
   var errorsOnly: Bool = false
@@ -108,11 +112,24 @@ struct OutputOptions: ParsableArguments {
   @Flag(name: .long, help: "Disable UUID name substitution (show raw UUIDs)")
   var noNames: Bool = false
 
+  /// Whether to disable color and styling escape codes.
+  @Flag(name: .long, help: "Disable ANSI colors and styling in output")
+  var plain: Bool = false
+
   /// Entity discovery method (patterns, api, or both).
   @Option(
     name: .long,
     help: "Entity discovery method: patterns, api, or both (default)")
   var entitySource: EntitySource = .both
+
+  /// Validates output options.
+  ///
+  /// - Throws: `ValidationError` if invalid values are supplied.
+  func validate() throws {
+    if let minimum, minimum < 1 {
+      throw ValidationError("--minimum must be 1 or greater")
+    }
+  }
 }
 
 // MARK: - Root Command

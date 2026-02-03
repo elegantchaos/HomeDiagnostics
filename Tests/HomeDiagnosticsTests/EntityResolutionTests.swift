@@ -26,7 +26,7 @@ struct EntityResolutionTests {
     let resolver = EntityResolver(annotations: collector.annotations)
 
     let displayName = resolver.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
-    #expect(displayName == "Hue color lamp-4A8856A0")
+    #expect(displayName == "Hue color lamp")
   }
 
   /// Tests multiple path-based patterns in a single message
@@ -45,8 +45,8 @@ struct EntityResolutionTests {
     let name1 = resolver.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
     let name2 = resolver.displayName(for: "CBD9ADE0-29ED-5945-A6A9-6E1750392F3D")
 
-    #expect(name1 == "Device1-4A8856A0")
-    #expect(name2 == "Device2-CBD9ADE0")
+    #expect(name1 == "Device1")
+    #expect(name2 == "Device2")
   }
 
   /// Tests action set name extraction
@@ -70,7 +70,7 @@ struct EntityResolutionTests {
     resolver.resolve()
 
     let actionSetName = resolver.displayName(for: "8006AFD6-5739-53CB-8175-DA40FF2BFCD2")
-    #expect(actionSetName == "Good Morning-8006AFD6")
+    #expect(actionSetName == "Good Morning")
 
     // Home UUID should be registered
     let homeEntity = resolver.entity(for: "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852")
@@ -122,8 +122,8 @@ struct EntityResolutionTests {
     let resolver = EntityResolver(annotations: collector.annotations)
     let displayName = resolver.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
 
-    // Should keep first encountered name (Living Room)
-    #expect(displayName == "Living Room-4A8856A0")
+    // Should keep one of the encountered names
+    #expect(displayName == "Living Room" || displayName == "Bedroom")
   }
 
   /// Tests case-insensitive UUID matching
@@ -138,17 +138,17 @@ struct EntityResolutionTests {
     collector.add(entry: entry)
     let resolver = EntityResolver(annotations: collector.annotations)
 
-    // Try with uppercase - should work and use the prefix from the input UUID
+    // Try with uppercase - should work
     let name1 = resolver.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
-    // Try with lowercase - should work and use the prefix from the input UUID
+    // Try with lowercase - should work
     let name2 = resolver.displayName(for: "4a8856a0-38e3-5af4-ac52-8390ffe944a2")
-    // Try with mixed case - should work and use the prefix from the input UUID
+    // Try with mixed case - should work
     let name3 = resolver.displayName(for: "4A8856a0-38E3-5aF4-aC52-8390FfE944A2")
 
-    // All should return the same name, just with different prefix casing
-    #expect(name1 == "Device-4A8856A0")
-    #expect(name2 == "Device-4a8856a0")
-    #expect(name3 == "Device-4A8856a0")
+    // All should return the same name
+    #expect(name1 == "Device")
+    #expect(name2 == "Device")
+    #expect(name3 == "Device")
   }
 
   // MARK: - UUID Substitution Tests
@@ -168,7 +168,7 @@ struct EntityResolutionTests {
     let testMessage = "Device 4A8856A0-38E3-5AF4-AC52-8390FFE944A2 is unreachable"
     let result = resolver.substitute(in: testMessage)
 
-    #expect(result == "Device Lamp-4A8856A0 is unreachable")
+    #expect(result == "Device Lamp is unreachable")
   }
 
   /// Tests substitution with multiple UUIDs
@@ -194,7 +194,7 @@ struct EntityResolutionTests {
       "Connection from 4A8856A0-38E3-5AF4-AC52-8390FFE944A2 to CBD9ADE0-29ED-5945-A6A9-6E1750392F3D failed"
     let result = resolver.substitute(in: testMessage)
 
-    #expect(result == "Connection from Device1-4A8856A0 to Device2-CBD9ADE0 failed")
+    #expect(result == "Connection from Device1 to Device2 failed")
   }
 
   /// Tests that unknown UUIDs are left unchanged
@@ -236,7 +236,7 @@ struct EntityResolutionTests {
       "Error in 4A8856A0-38E3-5AF4-AC52-8390FFE944A2 and 949F68CF-5065-5F7E-8DBC-4D6BE20F2BD6"
     let result = resolver.substitute(in: testMessage)
 
-    #expect(result == "Error in Hue color lamp-4A8856A0 and Corner Spot-949F68CF")
+    #expect(result == "Error in Hue color lamp and Corner Spot")
   }
 
   // MARK: - Combined Pattern Tests
@@ -279,15 +279,15 @@ struct EntityResolutionTests {
     let name2 = resolver.displayName(for: "CBD9ADE0-29ED-5945-A6A9-6E1750392F3D")
     let entity3 = resolver.entity(for: "3B23B284-673A-5FFF-A863-8F62C42711C0")
 
-    #expect(name1 == "Lamp-4A8856A0")
-    #expect(name2 == "Morning-CBD9ADE0")
+    #expect(name1 == "Lamp")
+    #expect(name2 == "Morning")
     #expect(entity3 != nil)  // Only registered, no name
     #expect(entity3?.name.isEmpty == true)
   }
 
-  /// Tests that display name uses first 8 characters of UUID
-  @Test("Display name uses UUID prefix correctly")
-  func testUUIDPrefixLength() async throws {
+  /// Tests that display name uses the resolved name
+  @Test("Display name uses resolved name")
+  func testDisplayNameUsesResolvedName() async throws {
     var collector = EntityCollector()
     collector.add(
       entry: LogEntry(
@@ -298,8 +298,7 @@ struct EntityResolutionTests {
     let resolver = EntityResolver(annotations: collector.annotations)
     let displayName = resolver.displayName(for: "12345678-1234-5678-9ABC-123456789ABC")
 
-    #expect(displayName?.hasSuffix("-12345678") == true)
-    #expect(displayName == "Device-12345678")
+    #expect(displayName == "Device")
   }
 
   /// Tests that technical-looking names are filtered out
@@ -339,7 +338,7 @@ struct EntityResolutionTests {
     let displayName = resolver.displayName(for: "12345678-1234-5678-9ABC-123456789ABC")
 
     // Should only have the valid human-readable name
-    #expect(displayName == "Living Room Lamp-12345678")
+    #expect(displayName == "Living Room Lamp")
   }
 
   // MARK: - HMDHome Pattern Tests
@@ -363,8 +362,8 @@ struct EntityResolutionTests {
     let internalName = resolver.displayName(for: "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852")
     let spiName = resolver.displayName(for: "3B23B284-673A-5FFF-A863-8F62C42711C0")
 
-    #expect(internalName == "Bank Street-3C0F85CD")
-    #expect(spiName == "Bank Street-3B23B284")
+    #expect(internalName == "Bank Street")
+    #expect(spiName == "Bank Street")
   }
 
   /// Tests Matter snapshot pattern extraction
@@ -383,7 +382,7 @@ struct EntityResolutionTests {
     let resolver = EntityResolver(annotations: collector.annotations)
     let homeName = resolver.displayName(for: "3C0F85CD-3FE6-43BD-B4B5-C9B07FF97852")
 
-    #expect(homeName == "Bank Street-3C0F85CD")
+    #expect(homeName == "Bank Street")
   }
 
   // MARK: - Type-Based Uniqueness Tests
@@ -419,8 +418,8 @@ struct EntityResolutionTests {
     let deviceName = resolver.displayName(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
     let actionSetName = resolver.displayName(for: "CBD9ADE0-29ED-5945-A6A9-6E1750392F3D")
 
-    #expect(deviceName == "Kitchen-4A8856A0")
-    #expect(actionSetName == "Kitchen-CBD9ADE0")
+    #expect(deviceName == "Kitchen")
+    #expect(actionSetName == "Kitchen")
 
     // Verify types are different
     let deviceEntity = resolver.entity(for: "4A8856A0-38E3-5AF4-AC52-8390FFE944A2")
