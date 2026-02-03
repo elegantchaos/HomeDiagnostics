@@ -99,7 +99,7 @@ In a swift source file:
 - Place helper types, extensions, and other code next.
 - Place #Previews at the bottom, if the type is a SwiftUI view
 - Format all source files with `swift format`.
-- After a change, run `swift format lint --recursive *` and report any problems.
+- After a change, run `swift format lint` on all source code and report any problems.
 
 
 ## Swift type layout
