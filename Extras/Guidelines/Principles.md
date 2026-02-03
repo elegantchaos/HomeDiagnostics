@@ -21,8 +21,8 @@ Signals you're violating it:
 - You're creating generic infrastructure to solve a one-off.
 
 Good examples:
-- Keep feature wiring local until it repeats.
-- Don't introduce a coordinator or router layer unless navigation/presentation requirements demand it.
+- Keep command wiring local until it repeats.
+- Avoid introducing a new command framework or dispatcher layer unless the CLI surface demands it.
 
 ### YAGNI
 
@@ -37,7 +37,7 @@ Use it to decide:
 Avoid duplication when it reduces bugs and maintenance.
 
 Practical guidance:
-- Deduplicate logic (behavior) sooner than you deduplicate presentation.
+- Deduplicate logic (behavior) sooner than you deduplicate output formatting.
 - Avoid "DRYing" unrelated code into an abstraction that hides intent.
 - In tests, deduplicate expensive setup and repeated literals (but keep assertions explicit).
 
@@ -45,9 +45,9 @@ Practical guidance:
 
 Keep authoritative state in one place; compute derived state from it.
 
-In SwiftUI:
-- Prefer storing the minimal mutable state in a model/view model.
-- Keep formatted strings and "isEnabled" style values derived.
+In a CLI:
+- Prefer storing the minimal mutable state in a command input model.
+- Keep formatted output and "isEnabled" style values derived.
 
 ### Make Invalid States Unrepresentable
 
@@ -64,16 +64,16 @@ Techniques:
 - DIP (Dependency Inversion Principle): high-level logic depends on abstractions, not concrete details.
 
 In this repo:
-- View models depend on protocols for services (store, persistence, clock, etc.) when it improves testability.
-- UI-facing types remain `@MainActor` and avoid I/O directly.
+- Command handlers depend on protocols for services (filesystem, persistence, clock, networking, process runner) when it improves testability.
+- Keep I/O boundaries explicit and isolate side effects in a few well-named types.
 
 ### Dependency Injection
 
 Prefer explicit dependencies over hidden globals.
 
 Practical defaults:
-- Constructor injection for view models/services.
-- Protocol boundaries around I/O (networking, StoreKit, filesystem, time).
+- Constructor injection for command handlers/services.
+- Protocol boundaries around I/O (filesystem, networking, process execution, time, environment).
 - Avoid singletons unless the codebase already standardizes on one.
 
 ### Composition over Inheritance
@@ -98,25 +98,64 @@ Minimize how much one part of the code knows about another.
 
 In practice:
 - Pass value types across module boundaries.
-- Avoid leaking framework types (like StoreKit models) into view models/views unless the boundary requires it.
+- Avoid leaking third-party types (like argument parser models) across module boundaries unless required.
 
 ### Pit of Success APIs
 
 Design APIs so the easiest path is the correct one.
 
 Examples:
-- Strongly typed product IDs.
-- Wrapper types that ensure verification ordering or prevent forgetting required steps.
+- Strongly typed identifiers for paths, commands, or configuration keys.
+- Wrapper types that ensure validation ordering or prevent skipping required steps.
 
 ### Concurrency-by-Design
 
 Be explicit about concurrency boundaries.
 
 Guidance:
-- UI-facing types: `@MainActor`.
+- Keep concurrency boundaries explicit and deterministic.
 - Shared mutable state: an actor.
 - Avoid shared global mutable state.
 - Prefer Swift concurrency primitives over GCD.
+- Avoid concurrency when the CLI output ordering is user-facing or part of tests.
+
+### Deterministic Output
+
+Given the same inputs, produce the same stdout, stderr, and exit code.
+
+Signals you're violating it:
+- Output ordering changes across runs without input changes.
+- Errors are printed to stdout or differ in phrasing across code paths.
+
+Good examples:
+- Stable sorting of results when order is not inherently meaningful.
+- Consistent error prefixes and exit codes.
+
+### Exit Codes as API
+
+Treat exit status and stderr as part of the public contract.
+
+Guidance:
+- Use non-zero exit codes for failures.
+- Reserve stdout for machine-readable output when appropriate.
+- Keep stderr human-readable and actionable.
+
+### Fast Failure, Clear Errors
+
+Validate inputs early and fail with context that helps users recover.
+
+Examples:
+- Validate file paths and permissions before doing work.
+- Tell the user which flag/argument is invalid and why.
+
+### Pipeline-Friendly Behavior
+
+Make commands composable in pipelines.
+
+Guidance:
+- Avoid interactive prompts unless explicitly requested.
+- Support reading from stdin when it matches CLI conventions.
+- Keep output free of extra noise unless a verbose flag is set.
 
 ## Decision heuristics (when unsure)
 
