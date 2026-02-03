@@ -145,8 +145,8 @@ private extension OutputFormatter {
 
   /// Groups log entries by their deduplication key.
   ///
-  /// Uses Phase 1 pattern-based normalization to group entries with identical
-  /// normalized messages. Creates `GroupedLogEntry` instances containing
+  /// Uses a first-pass format-string key when available, then refines grouping
+  /// using normalized messages. Creates `GroupedLogEntry` instances containing
   /// occurrence counts and time ranges. Groups are sorted by occurrence count (descending).
   ///
   /// Note: Phase 2 (token-based similarity) is available but not enabled here due to
@@ -156,18 +156,24 @@ private extension OutputFormatter {
   /// - Parameter entries: Log entries to group.
   /// - Returns: Array of grouped entries sorted by frequency.
   func groupEntries(_ entries: [LogEntry]) -> [GroupedLogEntry] {
-    // Phase 1: Group by exact deduplication key (normalized message)
-    let grouped = Dictionary(grouping: entries) { $0.deduplicationKey }
+    let summary = DeduplicationSummary(entries: entries)
+    var groups: [GroupedLogEntry] = []
 
-    return grouped.map { _, entries in
-      let sorted = entries.sorted { $0.timestamp < $1.timestamp }
-      return GroupedLogEntry(
-        example: sorted[0],
-        count: entries.count,
-        firstSeen: sorted[0].timestamp,
-        lastSeen: sorted[sorted.count - 1].timestamp
-      )
-    }.sorted { $0.count > $1.count }
+    for entries in summary.formatStringGroups.values {
+      for entries in entries {
+        let sorted = entries.sorted { $0.timestamp < $1.timestamp }
+        groups.append(
+          GroupedLogEntry(
+            example: sorted[0],
+            count: entries.count,
+            firstSeen: sorted[0].timestamp,
+            lastSeen: sorted[sorted.count - 1].timestamp
+          )
+        )
+      }
+    }
+
+    return groups.sorted { $0.count > $1.count }
   }
 
   /// Formats a date as a compact timestamp string.
@@ -280,7 +286,9 @@ private extension OutputFormatter {
     if deduplicate {
       let grouped = groupEntries(filteredProblematic)
       output +=
-        "Showing \(grouped.count) unique problematic entry types (out of \(filteredProblematic.count) total)\n\n"
+        "Showing \(grouped.count) unique problematic entry types (out of \(filteredProblematic.count) total)\n"
+      output += formatDeduplicationSummary(for: filteredProblematic)
+      output += "\n"
 
       for group in grouped {
         let color = colorForLevel(group.example.level)
@@ -338,7 +346,9 @@ private extension OutputFormatter {
     if deduplicate {
       let grouped = groupEntries(filteredEntries)
       output +=
-        "Showing \(grouped.count) unique entry types (out of \(filteredEntries.count) total)\n\n"
+        "Showing \(grouped.count) unique entry types (out of \(filteredEntries.count) total)\n"
+      output += formatDeduplicationSummary(for: filteredEntries)
+      output += "\n"
 
       for group in grouped {
         let color = colorForLevel(group.example.level)
@@ -490,5 +500,45 @@ private extension OutputFormatter {
     }
 
     return output
+  }
+
+  /// Formats a deduplication summary line comparing format-string and normalized grouping.
+  ///
+  /// Reports how many entries were collapsed by the first-pass format-string key
+  /// and by the normalized-message key. This is intended for assessing
+  /// deduplication effectiveness.
+  ///
+  /// - Parameter entries: The entries being displayed.
+  /// - Returns: A formatted summary line.
+  func formatDeduplicationSummary(for entries: [LogEntry]) -> String {
+    let summary = DeduplicationSummary(entries: entries)
+    return "Format-string dedupe: \(summary.formatStringDeduped) collapsed, normalized dedupe: \(summary.normalizedDeduped) collapsed\n"
+  }
+}
+
+/// Summary counts for deduplication effectiveness.
+struct DeduplicationSummary: Sendable {
+  /// The number of entries collapsed by format-string grouping.
+  let formatStringDeduped: Int
+
+  /// The number of entries collapsed by normalized-message grouping.
+  let normalizedDeduped: Int
+
+  /// Buckets entries by format string and normalized key.
+  let formatStringGroups: [String: [[LogEntry]]]
+
+  /// Creates a summary from entries.
+  ///
+  /// - Parameter entries: The entries being summarized.
+  init(entries: [LogEntry]) {
+    let groupedByFormatString = Dictionary(grouping: entries) { $0.formatStringKey }
+    let uniqueByFormatString = groupedByFormatString.count
+    let uniqueByNormalized = Dictionary(grouping: entries) { $0.deduplicationKey }.count
+    formatStringDeduped = entries.count - uniqueByFormatString
+    normalizedDeduped = entries.count - uniqueByNormalized
+    formatStringGroups = groupedByFormatString.mapValues { bucket in
+      let normalizedGroups = Dictionary(grouping: bucket) { $0.deduplicationKey }
+      return Array(normalizedGroups.values)
+    }
   }
 }

@@ -123,4 +123,59 @@ struct FormattingTests {
     #expect(!output.localizedStandardContains("Normal operation started."))
     #expect(!output.localizedStandardContains("Nanoleaf device error."))
   }
+
+  /// Tests that deduplication summary includes both approaches
+  @Test("Deduplication summary reports both counters")
+  func testDeduplicationSummaryCounters() async throws {
+    let entries = [
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        category: "HMHomeManager",
+        formatString: "updateHomes(timeout:) found homes [%{public}s]",
+        level: .info,
+        message: "updateHomes(timeout:) found homes [ABC]"
+      ),
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        category: "HMHomeManager",
+        formatString: "updateHomes(timeout:) found homes [%{public}s]",
+        level: .info,
+        message: "updateHomes(timeout:) found homes [DEF]"
+      ),
+      LogEntry(
+        timestamp: Date(),
+        subsystem: "com.apple.HomeKit",
+        process: "homed",
+        level: .error,
+        message: "Device [4A8856A0-38E3-5AF4-AC52-8390FFE944A2] failed"
+      ),
+    ]
+
+    let analysis = LogAnalysis(
+      totalEntries: entries.count,
+      errorCount: 1,
+      faultCount: 0,
+      warningCount: 0,
+      problematicCount: 1,
+      subsystemCounts: ["com.apple.HomeKit": entries.count],
+      problematicEntries: entries.filter { $0.isProblematic },
+      allEntries: entries,
+      uuidNameResolver: EntityResolver(annotations: [])
+    )
+
+    let formatter = OutputFormatter(
+      analysis: analysis,
+      showSummary: false,
+      deduplicate: true,
+      errorsOnly: false
+    )
+
+    let output = formatter.format()
+    #expect(output.localizedStandardContains("Format-string dedupe:"))
+    #expect(output.localizedStandardContains("normalized dedupe:"))
+  }
 }

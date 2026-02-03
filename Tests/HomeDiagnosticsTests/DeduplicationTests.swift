@@ -119,6 +119,42 @@ struct DeduplicationTests {
     #expect(key == "com.apple.HomeKit|Error|Device [<id>] failed")
   }
 
+  /// Tests format-string key uses the format string when available
+  @Test("Format-string key prefers format string")
+  func testFormatStringKeyUsesFormatString() async throws {
+    let entry = LogEntry(
+      timestamp: Date(),
+      subsystem: "com.apple.HomeKit",
+      process: "homed",
+      category: "HMHomeManager",
+      formatString: "updateHomes(timeout:) found homes [%{public}s]",
+      level: .info,
+      message: "updateHomes(timeout:) found homes [ABC, DEF]"
+    )
+
+    let key = entry.formatStringKey
+
+    #expect(key == "com.apple.HomeKit|Info|updateHomes(timeout:) found homes [%{public}s]")
+  }
+
+  /// Tests format-string key falls back when format string is empty
+  @Test("Format-string key falls back on empty format string")
+  func testFormatStringKeyFallbackOnEmpty() async throws {
+    let entry = LogEntry(
+      timestamp: Date(),
+      subsystem: "com.apple.HomeKit",
+      process: "homed",
+      category: nil,
+      formatString: " ",
+      level: .error,
+      message: "Device [4A8856A0-38E3-5AF4-AC52-8390FFE944A2] failed"
+    )
+
+    let key = entry.formatStringKey
+
+    #expect(key == entry.deduplicationKey)
+  }
+
   /// Tests identical messages deduplicate
   @Test("Identical messages should deduplicate")
   func testIdenticalMessagesDeduplicate() async throws {

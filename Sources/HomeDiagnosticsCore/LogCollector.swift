@@ -6,6 +6,8 @@ private struct RawLogEntry: Codable {
   let eventMessage: String
   let subsystem: String
   let processImagePath: String
+  let formatString: String?
+  let category: String?
 }
 
 private extension LogEntry {
@@ -15,6 +17,8 @@ private extension LogEntry {
     process = (raw.processImagePath as NSString).lastPathComponent
     level = raw.messageType
     message = raw.eventMessage
+    formatString = raw.formatString
+    category = raw.category
   }
 }
 

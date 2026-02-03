@@ -16,6 +16,13 @@ public struct LogEntry: Sendable {
   /// The process name that generated the log (e.g., "homed", "Home").
   public let process: String
 
+  /// The category of the log entry (e.g., "Networking", "Accessory").
+  public let category: String?
+
+  /// Format string associated with the log entry, if available.
+  /// Used for deduplication and normalization.
+  public let formatString: String?
+
   /// The severity level of this log entry.
   public let level: LogLevel
 
@@ -28,18 +35,24 @@ public struct LogEntry: Sendable {
   ///   - timestamp: When the log entry was created.
   ///   - subsystem: The subsystem that generated the log.
   ///   - process: The process name that generated the log.
+  ///   - category: The category of the log entry (default: nil).
+  ///   - formatString: The format string associated with the log entry (default: nil).
   ///   - level: The severity level.
   ///   - message: The log message content.
   public init(
     timestamp: Date,
     subsystem: String,
     process: String,
+    category: String? = nil,
+    formatString: String? = nil,
     level: LogLevel,
     message: String
   ) {
     self.timestamp = timestamp
     self.subsystem = subsystem
     self.process = process
+    self.category = category
+    self.formatString = formatString
     self.level = level
     self.message = message
   }
@@ -142,5 +155,18 @@ public struct LogEntry: Sendable {
   /// type of log message with different variable values.
   public var deduplicationKey: String {
     "\(subsystem)|\(level.rawValue)|\(normalizedMessage)"
+  }
+
+  /// A format-string-based key used as a first-pass deduplication bucket.
+  ///
+  /// Uses the log's format string when present and falls back to the normalized
+  /// message when the format string is missing or empty. The key includes the
+  /// subsystem and log level for stability across sources.
+  public var formatStringKey: String {
+    let trimmed = formatString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !trimmed.isEmpty {
+      return "\(subsystem)|\(level.rawValue)|\(trimmed)"
+    }
+    return deduplicationKey
   }
 }
