@@ -11,6 +11,7 @@ This document covers architecture, building, testing, and contributing to HomeDi
 - [Deduplication System](#deduplication-system)
 - [Contributing](#contributing)
 - [Dependencies](#dependencies)
+- [HomeKit Service](#homekit-service)
 
 ## Architecture
 
@@ -23,6 +24,7 @@ HomeDiagnostics is built as a Swift command-line tool using a modular package ar
 - **JSON-based parsing**: Uses `log show --style json` for accurate metadata
 - **Stream separation**: Analysis output to stdout, diagnostics to stderr
 - **Sendable types**: Full Swift 6 strict concurrency support
+- **Entity resolution**: Pattern scanning with optional HomeKit API enrichment
 
 ### Component Diagram
 
@@ -63,6 +65,12 @@ HomeDiagnostics is built as a Swift command-line tool using a modular package ar
                │   │   ├─→ formatSummary()
                │   │   ├─→ formatProblematicEntries()
                │   │   └─→ formatAllEntries()
+               │   │
+               │   ├─→ EntityCollector (pattern-based naming)
+               │   ├─→ HomeKitAPICollector (optional HomeKit enrichment)
+               │   ├─→ EntityResolver (entity resolution)
+               │   ├─→ EntityAnnotation (annotation model)
+               │   ├─→ NameType (entity types)
                │   │
                │   └─→ Supporting Types
                │       ├─→ LogLevel (enum)
@@ -153,7 +161,7 @@ HomeDiagnostics is built as a Swift command-line tool using a modular package ar
 
 ### Requirements
 
-- macOS 15.0+ (Sequoia or later)
+- macOS 26.0+ (or later)
 - Swift 6.2+
 - Xcode 16.0+ (for development)
 
@@ -353,9 +361,12 @@ HomeDiagnostics/
 │
 ├── Extras/
 │   └── Documentation/                # Extended documentation
-│       ├── Examples.md               # Usage examples & output reference
 │       ├── Development.md            # This file
-│       └── Principles.md             # Engineering principles
+│       ├── HomeKitService.md         # XPC helper app plan
+│       ├── Name Scanning.md          # Entity resolution and naming
+│       ├── Output.md                 # Output reference
+│       ├── Performance.md            # Performance guide
+│       └── Usage.md                  # Usage guide
 │
 ├── Package.swift                     # Swift Package Manager manifest
 ├── README.md                         # Main documentation
@@ -535,8 +546,8 @@ See [Principles Glossary](Principles.md) for:
 
 #### swift-argument-parser (1.3.0+)
 
-**Purpose**: Command-line argument parsing  
-**Repository**: https://github.com/apple/swift-argument-parser  
+**Purpose**: Command-line argument parsing
+**Repository**: https://github.com/apple/swift-argument-parser
 **License**: Apache 2.0
 
 **Usage**:
@@ -553,8 +564,8 @@ struct HomeDiagnostics: AsyncParsableCommand {
 
 #### swift-subprocess (0.0.1+)
 
-**Purpose**: Safe process execution  
-**Repository**: https://github.com/swiftlang/swift-subprocess  
+**Purpose**: Safe process execution
+**Repository**: https://github.com/swiftlang/swift-subprocess
 **License**: Apache 2.0
 
 **Usage**:
@@ -569,13 +580,18 @@ let result = try await Subprocess.run(
 
 ### Approved Dependencies
 
-Only dependencies listed in `Extras/Documentation/Approved Dependencies.md` may be added to the project.
+Only dependencies listed in `Extras/Guidelines/Dependencies.md` may be added to the project.
 
 Current approved list:
 - swift-argument-parser
 - swift-subprocess
+- Logger
 
 **To propose a new dependency**: Open an issue with justification.
+
+## HomeKit Service
+
+For the HomeKit XPC helper app plan, see `Extras/Documentation/HomeKitService.md`.
 
 ## Development Workflow
 

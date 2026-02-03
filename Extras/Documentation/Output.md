@@ -77,6 +77,12 @@ Entries by subsystem:
 
 **Note**: "Unique entry types" appears only with `--dedupe` flag.
 
+## UUID Naming Summary
+
+When name substitution is enabled (default), a UUID naming summary is appended to the end of the output. It groups entities by home and shows devices/scenes with their UUID prefixes.
+
+You can disable this section and UUID substitution with `--no-names`.
+
 ## Deduplication Technology
 
 HomeDiagnostics uses intelligent pattern-based normalization to group similar error messages:

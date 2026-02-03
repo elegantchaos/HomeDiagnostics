@@ -8,6 +8,7 @@ This document covers common workflows, filter patterns, troubleshooting steps, a
 - [Filter Patterns](#filter-patterns)
 - [Troubleshooting](#troubleshooting)
 - [Common Error Messages](#common-error-messages)
+- [Entity Naming](#entity-naming)
 
 ## Common Workflows
 
@@ -228,7 +229,7 @@ home-diagnostics --days 14 --errors-only --dedupe
 
 # Check for time-of-day patterns (export and analyze)
 home-diagnostics --days 7 --raw > logs.txt
-grep "unreachable" logs.txt | cut -d' ' -f2 | sort | uniq -c
+rg "unreachable" logs.txt | cut -d' ' -f2 | sort | uniq -c
 
 # Check for recurring error spikes
 home-diagnostics --days 30 --summary
@@ -338,3 +339,24 @@ For advanced filtering:
 | High refresh counts | Normal operation | No action needed |
 | "No matching HMHome" | Configuration mismatch | Check Home app setup |
 | "pairing.*fail" | Cannot establish connection | Reset and re-pair device |
+
+## Entity Naming
+
+Entity naming is enabled by default and substitutes UUIDs with human-readable names gathered from logs (and optionally the HomeKit API). You can control the source with `--entity-source`:
+
+```bash
+# Pattern scanning only (default)
+home-diagnostics --entity-source patterns
+
+# HomeKit API only (requires authorization)
+home-diagnostics --entity-source api
+
+# Both sources for maximum coverage
+home-diagnostics --entity-source both
+```
+
+Disable substitution and the naming summary with:
+
+```bash
+home-diagnostics --no-names
+```

@@ -4,14 +4,7 @@ A macOS command-line tool for collecting and analyzing Apple Home and HomeKit lo
 
 ## Overview
 
-HomeDiagnostics queries the macOS unified logging system to extract and analyze logs from Apple Home, HomeKit, and the Home daemon. It helps diagnose issues with smart home devices that become non-responsive by providing filtered, deduplicated views of error conditions.
-
-**Key Features:**
-- **Intelligent deduplication** - Groups similar errors (98% reduction in unique messages)
-- **Flexible filtering** - Plain text or regex patterns to focus on specific devices/issues
-- **Multiple output modes** - Summary, raw, or analyzed views
-- **Color-coded output** - Errors in red, warnings in yellow, metadata dimmed
-- **Accurate parsing** - JSON-based log parsing for zero false positives
+HomeDiagnostics queries the macOS unified logging system to extract and analyze logs from Apple Home, HomeKit, and the Home daemon. It helps diagnose issues with smart home devices that become non-responsive by providing filtered, deduplicated views of error conditions, plus capture/replay workflows for offline analysis.
 
 ## Quick Start
 
@@ -40,6 +33,12 @@ home-diagnostics --days 7 --filter "hue" --errors-only --dedupe
 
 # Get summary statistics
 home-diagnostics --days 14 --summary
+
+# Prefer log-derived names only
+home-diagnostics --entity-source patterns
+
+# Use HomeKit API for names (requires authorization)
+home-diagnostics --entity-source api
 ```
 
 ## Command-Line Options
@@ -78,6 +77,13 @@ home-diagnostics --days 14 --summary
 --detailed        # Include debug-level logs (slower)
 ```
 
+### Entity Naming
+
+```bash
+--entity-source   # Entity discovery method: patterns, api, or both
+--no-names        # Disable UUID name substitution and summary
+```
+
 ### Other Options
 
 ```bash
@@ -106,7 +112,7 @@ home-diagnostics --days 7 --detailed --dedupe
 
 ## Requirements
 
-- **macOS**: 15.0+ (Sequoia or later)
+- **macOS**: 26.0+ (or later)
 - **Swift**: 6.2+ (for building)
 - **Xcode**: 16.0+ (for development)
 
@@ -116,11 +122,12 @@ home-diagnostics --days 7 --detailed --dedupe
 - **[Output Reference](Extras/Documentation/Output.md)** - Understanding output format, deduplication, and log levels
 - **[Usage Guide](Extras/Documentation/Usage.md)** - Common workflows, filter patterns, and troubleshooting
 - **[Performance Guide](Extras/Documentation/Performance.md)** - Execution times and optimization tips
+- **[Name Scanning](Extras/Documentation/Name Scanning.md)** - Entity naming and HomeKit enrichment
 
 ### Developer Guides
 - **[Development Guide](Extras/Documentation/Development.md)** - Architecture, building, testing, and contributing
 - **[Engineering Principles](Extras/Guidelines/Principles.md)** - Design patterns and coding standards
-- 
+- **[HomeKit Service Plan](Extras/Documentation/HomeKitService.md)** - XPC helper app plan for HomeKit access
 
 ## License
 

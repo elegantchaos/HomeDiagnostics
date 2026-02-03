@@ -159,7 +159,7 @@ home-diagnostics --days 30 --errors-only --dedupe
 
 ### Test System
 - MacBook Pro (M1 Max, 64GB RAM)
-- macOS 15.2 Sequoia
+- macOS 26.0
 - Active smart home (50+ devices)
 - 7 days of logs
 

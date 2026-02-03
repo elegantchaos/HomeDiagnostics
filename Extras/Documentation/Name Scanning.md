@@ -238,17 +238,17 @@ During initialization, `EntityResolver`:
 The `--entity-source` option controls which approach(es) to use:
 
 ```bash
-# Pattern scanning only (default, no permissions required)
-homediagnostics --entity-source patterns
+# Pattern scanning only (no permissions required)
+home-diagnostics --entity-source patterns
 
 # HomeKit API only (requires authorization)
-homediagnostics --entity-source api
+home-diagnostics --entity-source api
 
 # Both approaches (maximum coverage)
-homediagnostics --entity-source both
+home-diagnostics --entity-source both
 ```
 
-**Default Behavior**: `patterns` (no authorization required)
+**Default Behavior**: `both` when HomeKit is available; otherwise it falls back to `patterns`.
 
 ## UUID Substitution
 
@@ -293,271 +293,13 @@ This section is only displayed when `--no-names` flag is not used.
 
 ---
 
-## Implementation Plan
-
-This section provides a detailed roadmap for implementing the hybrid entity discovery system.
-
-### Phase 1: Entity Model Refactoring
-
-**Goal**: Simplify Entity from multi-name to single-name with type-based uniqueness.
-
-#### Step 1.1: Update Entity.swift
-
-- [ ] Change `names: Set<String>` to `name: String` stored property
-- [ ] Remove computed `name` property (now redundant)
-- [ ] Update `init(name:type:)` to set `self.name = name`
-- [ ] Update empty `init()` to set `self.name = ""`
-- [ ] Update `adding(uuid:)` method to preserve single name
-- [ ] Update `merging(uuidsFrom:)` to keep first name (don't merge names)
-- [ ] Update all doc comments to reflect single name
-- [ ] Update `Equatable` conformance if needed
-
-**Files**: `Sources/HomeDiagnosticsCore/Entity.swift`
-
-#### Step 1.2: Update EntityResolver.swift - Part 1 (Single Name)
-
-- [ ] Add `Logger` at file scope: `Logger(subsystem: "com.elegantchaos.HomeDiagnostics", category: "EntityResolver")`
-- [ ] In `init(annotations:)` handling `.name` and `.uuid` cases:
-  - When entity already exists with different name, log warning but keep first name
-  - Change `entity.names.insert(name)` to conditional check and warning
-- [ ] Update `resolve()` method:
-  - Change `existing.names.formUnion(entity.names)` to keep existing.name
-  - Log warning if merging entities with different names
-- [ ] Update `displayName(for:)` method:
-  - Use `entity.name` directly (not `.names.sorted()`)
-  - Remove slash-joining logic for multiple names
-  - Simplify to: `"\(entity.name)-\(prefix)"`
-
-**Files**: `Sources/HomeDiagnosticsCore/EntityResolver.swift`
-
-### Phase 2: Type-Based Name Uniqueness
-
-**Goal**: Allow same name across different entity types (e.g., device "Kitchen" and scene "Kitchen").
-
-#### Step 2.1: Update EntityResolver.swift - Part 2 (Type Scoping)
-
-- [ ] Change `nameToEntity` dictionary from `[String: Entity]` to `[String: Entity]`
-- [ ] Create helper method `nameKey(name:type:) -> String` returning `"\(type.rawValue):\(name)"`
-- [ ] Update all `nameToEntity` accesses to use `nameKey(name:type:)`
-- [ ] Update name-based lookups in annotation processing
-- [ ] Update `entity(for uuid:)` and `entity(named:)` methods if they exist
-
-**Files**: `Sources/HomeDiagnosticsCore/EntityResolver.swift`
-
-### Phase 3: HomeKit API Integration
-
-**Goal**: Add HomeKit framework support with async entity collection.
-
-#### Step 3.1: Add HomeKit Framework Dependency
-
-- [ ] Open `Package.swift`
-- [ ] Add `.framework("HomeKit")` to `HomeDiagnosticsCore` target `linkerSettings`
-- [ ] Add platform condition: `.when(platforms: [.macOS, .iOS])`
-
-**Files**: `Package.swift`
-
-#### Step 3.2: Create HomeKitAPICollector.swift
-
-- [ ] Create `@MainActor final class HomeKitAPICollector`
-- [ ] Conform to `HMHomeManagerDelegate`
-- [ ] Add `Logger` at file scope for performance logging
-- [ ] Add private properties:
-  - `private let homeManager = HMHomeManager()`
-  - `private var continuation: CheckedContinuation<Void, Never>?`
-- [ ] Implement `collect() async throws -> [EntityAnnotation]`:
-  - Log start timestamp
-  - Create continuation to wait for homes loaded
-  - Set `homeManager.delegate = self`
-  - Wait for `homeManagerDidUpdateHomes` callback
-  - Enumerate all homes, accessories, action sets
-  - Create `.name` and `.owner` annotations
-  - Log completion with duration and count
-  - Return annotations array
-- [ ] Implement `homeManagerDidUpdateHomes(_ manager:)`:
-  - Resume continuation to signal homes loaded
-- [ ] Handle authorization errors gracefully (return empty array)
-- [ ] Add doc comments for all members
-
-**Files**: `Sources/HomeDiagnosticsCore/HomeKitAPICollector.swift`
-
-#### Step 3.3: Update LogAnalyzer.swift
-
-- [ ] Add `additionalAnnotations: [EntityAnnotation] = []` parameter to `analyzeStream()` method
-- [ ] Prepend additional annotations to merged pattern-scanned annotations:
-  - Change: `let allAnnotations = allCollectors.flatMap { $0.annotations }`
-  - To: `let allAnnotations = additionalAnnotations + allCollectors.flatMap { $0.annotations }`
-- [ ] Update doc comment to document new parameter
-
-**Files**: `Sources/HomeDiagnosticsCore/LogAnalyzer.swift`
-
-### Phase 4: CLI Integration
-
-**Goal**: Add command-line options to control entity discovery sources.
-
-#### Step 4.1: Add EntitySource Enum to HomeDiagnostics.swift
-
-- [ ] Add enum before `HomeDiagnostics` struct:
-```swift
-/// Entity discovery method selection.
-enum EntitySource: String, ExpressibleByArgument {
-  /// Use pattern scanning of log messages (default).
-  case patterns
-  
-  /// Use HomeKit API queries.
-  case api
-  
-  /// Use both pattern scanning and HomeKit API.
-  case both
-}
-```
-
-**Files**: `Sources/HomeDiagnostics/HomeDiagnostics.swift`
-
-#### Step 4.2: Add CLI Option to HomeDiagnostics.swift
-
-- [ ] Add `@Option` property to `HomeDiagnostics` struct:
-```swift
-@Option(name: .long, help: "Entity discovery method: patterns (default), api, or both")
-var entitySource: EntitySource = .patterns
-```
-- [ ] Place after `--no-names` flag for logical grouping
-
-**Files**: `Sources/HomeDiagnostics/HomeDiagnostics.swift`
-
-#### Step 4.3: Update Run Logic in HomeDiagnostics.swift
-
-- [ ] In `run()` method, before creating `LogAnalyzer`:
-  - Add conditional HomeKit collection:
-```swift
-var additionalAnnotations: [EntityAnnotation] = []
-if entitySource == .api || entitySource == .both {
-  do {
-    let collector = HomeKitAPICollector()
-    additionalAnnotations = try await collector.collect()
-  } catch {
-    logger.error("HomeKit collection failed: \(error)")
-  }
-}
-```
-- [ ] Pass annotations to analyzer:
-  - Change: `let analysis = try await analyzer.analyzeStream()`
-  - To: `let analysis = try await analyzer.analyzeStream(additionalAnnotations: additionalAnnotations)`
-
-**Files**: `Sources/HomeDiagnostics/HomeDiagnostics.swift`
-
-### Phase 5: OutputFormatter Completion
-
-**Goal**: Implement missing EntityResolver methods needed by OutputFormatter.
-
-#### Step 5.1: Add Helper Methods to EntityResolver.swift
-
-- [ ] Add `namedUUIDs` computed property:
-```swift
-/// All entities that have both a name and at least one UUID.
-public var namedUUIDs: Set<Entity> {
-  allEntities.filter { !$0.name.isEmpty && !$0.uuids.isEmpty }
-}
-```
-
-- [ ] Add `entitiesByHome()` method:
-```swift
-/// Organizes entities by their home ownership.
-///
-/// - Returns: Tuple containing:
-///   - homeToEntities: Map of home UUIDs to their child entity UUIDs
-///   - standaloneHomes: Set of home UUIDs with no children
-///   - unknownHomeEntities: Set of entity UUIDs with no home owner
-public func entitiesByHome() -> (
-  homeToEntities: [String: Set<String>],
-  standaloneHomes: Set<String>,
-  unknownHomeEntities: Set<String>
-) {
-  // Implementation here
-}
-```
-
-- [ ] Add `matterID(for:)` method:
-```swift
-/// Returns the first Matter ID associated with the given UUID.
-///
-/// - Parameter uuid: The UUID to look up.
-/// - Returns: Matter ID string if found, nil otherwise.
-public func matterID(for uuid: String) -> String? {
-  entity(for: uuid)?.matterIDs.first
-}
-```
-
-**Files**: `Sources/HomeDiagnosticsCore/EntityResolver.swift`
-
-#### Step 5.2: Fix OutputFormatter.swift
-
-- [ ] In `format()` method, uncomment and fix UUID summary section:
-```swift
-if substituteNames {
-  output += formatUUIDSummary(resolver: analysis.uuidNameResolver)
-}
-```
-- [ ] In `formatUUIDSummary(resolver:)` method:
-  - Remove duplicate line with `uuidNamer`
-  - Use `resolver.namedUUIDs` instead of `resolver.namedUUIDs.count`
-  - Use `resolver.entitiesByHome()` correctly
-  - Remove all references to `uuidNamer` variable
-  - Use `entity.name` instead of `entity.names.sorted()`
-  - Use `resolver.matterID(for:)` correctly
-
-**Files**: `Sources/HomeDiagnosticsCore/OutputFormatter.swift`
-
-### Phase 6: Testing Updates
-
-**Goal**: Update tests to reflect single-name behavior and add new test coverage.
-
-#### Step 6.1: Update AnalysisTests.swift
-
-- [ ] Find test expecting `"Bedroom/Living Room-4A8856A0"`
-- [ ] Update expectation to first-seen name only (e.g., `"Living Room-4A8856A0"`)
-- [ ] Add test for name conflict warning logging
-
-**Files**: `Tests/HomeDiagnosticsTests/AnalysisTests.swift`
-
-#### Step 6.2: Update UUIDNamerTests.swift
-
-- [ ] Remove or update tests validating slash-separated multi-name output
-- [ ] Update tests to expect single name only
-- [ ] Add test verifying warnings logged for conflicting names
-
-**Files**: `Tests/HomeDiagnosticsTests/UUIDNamerTests.swift`
-
-#### Step 6.3: Add Type-Based Uniqueness Tests
-
-- [ ] Add test creating device "Kitchen" and actionSet "Kitchen"
-- [ ] Verify both entities coexist with different UUIDs
-- [ ] Add test creating two devices named "Kitchen" with different UUIDs
-- [ ] Verify second device keeps first UUID's name, warning logged
-
-**Files**: `Tests/HomeDiagnosticsTests/` (new or existing test file)
-
-### Phase 7: Validation and Documentation
-
-**Goal**: Ensure all changes work together correctly.
-
-#### Step 7.1: Build and Test
-
-- [ ] Run `swift build --target HomeDiagnosticsCore` to verify package builds
-- [ ] Run `swift test` to execute all unit tests
-- [ ] Fix any compilation errors or test failures
-- [ ] Verify pattern scanning still works (`--entity-source patterns`)
-- [ ] Test HomeKit API if permissions available (`--entity-source api`)
-- [ ] Test hybrid mode (`--entity-source both`)
-
-#### Step 7.2: Update README.md
-
-- [ ] Add note about `--entity-source` option
-- [ ] Link to Name Scanning.md for details
-- [ ] Document HomeKit entitlement requirements if needed
-
-**Files**: `README.md`
-
----
+## Current Status
+
+- Pattern-based scanning is implemented and used by default.
+- Optional HomeKit API enrichment is implemented behind `--entity-source api|both`.
+- Default behavior is `both` when HomeKit is available; otherwise it falls back to `patterns`.
+- Entity naming uses type-scoped uniqueness (devices and scenes can share names).
+- UUID substitution is enabled unless `--no-names` is set.
 
 ## Future Enhancements
 
